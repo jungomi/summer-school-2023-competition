@@ -1,0 +1,5 @@
+ruff==0.0.277
+mypy==1.4.1
+black==23.3.0
+isort==5.12.0
+debugpy==1.6.7
