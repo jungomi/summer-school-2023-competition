@@ -105,14 +105,10 @@ def run_train(
         curr_batch_size = batch.images.size(0)
         # Automatically run it in mixed precision (FP16) if a scaler is given
         with amp.autocast(enabled=amp_scaler is not None):
-            try:
-                outputs = model(
-                    pixel_values=batch.images.to(device),
-                    labels=batch.targets.to(device),
-                )
-            except RuntimeError as e:
-                print(e)
-                breakpoint("Forward error")
+            outputs = model(
+                pixel_values=batch.images.to(device),
+                labels=batch.targets.to(device),
+            )
         loss = outputs.loss
         losses.append(loss.item())
         if torch.isnan(loss) or torch.isinf(loss):
