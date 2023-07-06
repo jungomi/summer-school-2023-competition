@@ -54,10 +54,10 @@ class DEFAULTS:
     pretrained = "microsoft/trocr-base-handwritten"
 
     class lr:
-        peak_lr = 3e-3
+        peak_lr = 2e-5
         scheduler = "inv-sqrt"
         warmup_mode = "linear"
-        warmup_steps = 4000
+        warmup_steps = 500
         warmup_start_lr = 0.0
 
     class optim:
