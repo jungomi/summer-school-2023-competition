@@ -2,6 +2,7 @@
 /exported/
 /log/
 /generated/
+/models/
 
 # Node
 node_modules/
