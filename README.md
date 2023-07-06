@@ -6,11 +6,11 @@
 
 * [Requirements](#requirements)
 * [Usage](#usage)
-    * [Training](#training)
-        * [Logs](#logs)
+  * [Training](#training)
+    * [Logs](#logs)
 * [Development](#development)
-    * [Pre-Commit Hooks](#pre-commit-hooks)
-    * [Debugger](#debugger)
+  * [Pre-Commit Hooks](#pre-commit-hooks)
+  * [Debugger](#debugger)
 
 <!-- vim-markdown-toc -->
 
@@ -63,9 +63,19 @@ For all options see `python train.py --help`.
 
 #### Logs
 
-During the training various types of logs are created with [Weights and Biases][wandb] and can be found in `log/`.
+During the training various types of logs are created with [Lavd][lavd] and everything can be found in `log/` and is
+grouped by the experiment name.
 
-You need to be logged into wandb, either with on their services or locally.
+- Summary
+- Checkpoints
+- Top 5 Checkpoints
+- Event logs
+
+To visualise the logged data run:
+
+```sh
+lavd log/
+```
 
 ## Development
 
@@ -145,8 +155,8 @@ will simply create a different session, with the port incremented by one.
 Should your editor not support DAP (e.g. PyCharm doesn't and probably won't ever), it is easiest to use VSCode for this.
 
 [dap]: https://microsoft.github.io/debug-adapter-protocol/
+[lavd]: https://github.com/jungomi/lavd
 [lsp]: https://microsoft.github.io/language-server-protocol/
 [pytorch]: https://pytorch.org/
 [pytorch-started]: https://pytorch.org/get-started/locally/
 [pytorch-jit-load]: https://pytorch.org/docs/stable/generated/torch.jit.load.html
-[wandb]: https://wandb.ai/
