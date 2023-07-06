@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics.functional.text import char_error_rate, word_error_rate
+from torchvision import transforms
 from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
 
 from dataset import Batch, Collate, CompetitionDataset
@@ -29,6 +30,9 @@ from preprocess import Preprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
 from stats.log import log_epoch_stats, log_experiment, log_results, log_top_checkpoints
 from utils import save_model, split_named_arg, sync_dict_values, unwrap_model
+
+# Revert the normalisation, i.e. going from [-1, 1] to [0, 1]
+unnormalise = transforms.Normalize(mean=(-1,), std=(2,))
 
 
 # This is a class containing all defaults, it is not meant to be instantiated, but
@@ -53,7 +57,7 @@ class DEFAULTS:
         peak_lr = 3e-3
         scheduler = "inv-sqrt"
         warmup_mode = "linear"
-        warmup_epochs = 5
+        warmup_steps = 4000
         warmup_start_lr = 0.0
 
     class optim:
@@ -204,6 +208,11 @@ def run_validation(
     )
     # Gather the metrics onto the primary process
     result = sync_dict_values(result, device=device)
+    result["sample"] = dict(  # type: ignore
+        image=unnormalise(batch.images[0].cpu()),
+        text=batch.texts[0],
+        pred=output_text[0],
+    )
     return result
 
 
@@ -314,7 +323,7 @@ def train(
             log_results(
                 logger,
                 actual_epoch,
-                dict(lr=lr_scheduler.lr, stats=train_result),
+                dict(lr=lr_scheduler.lr, **train_result),
                 validation_results,
                 metrics=METRICS,
             )
@@ -431,10 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lr-warmup",
         dest="lr_warmup",
-        default=DEFAULTS.lr.warmup_epochs,
+        default=DEFAULTS.lr.warmup_steps,
         type=int,
         help="Number of linear warmup steps for the learning rate [Default: {}]".format(
-            DEFAULTS.lr.warmup_epochs
+            DEFAULTS.lr.warmup_steps
         ),
     )
     parser.add_argument(

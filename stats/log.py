@@ -108,6 +108,12 @@ def log_results(
             key = metric.key
             val = get_recursive(result, key=key)
             logger.log_scalar(val, f"{name}/{key}", step=epoch)
+        sample = get_recursive(result, key="sample")
+        if sample:
+            logger.log_image(sample["image"], f"{name}/sample", step=epoch)
+            logger.log_text(
+                sample["pred"], f"{name}/sample", step=epoch, expected=sample["text"]
+            )
 
 
 def log_epoch_stats(

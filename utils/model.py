@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import lavd
 import torch.nn as nn
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
@@ -11,7 +13,8 @@ def save_model(
 ):
     if logger.disabled:
         return
-    path = logger.get_file_path(name)
+    # path = logger.get_file_path(name)
+    path = Path("models") / name
     path.parent.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(path, safe_serialization=True)
     processor.save_pretrained(path)
