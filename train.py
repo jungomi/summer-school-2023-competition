@@ -17,7 +17,7 @@ from torchmetrics.functional.text import char_error_rate, word_error_rate
 from torchvision import transforms
 from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
 
-from dataset import Batch, Collate, CompetitionDataset
+from dataset import Batch, Collate, CompetitionDataset  # noqa: F401
 from debugger import breakpoint
 from ema import AveragedModel
 from lr_scheduler import (
@@ -26,6 +26,7 @@ from lr_scheduler import (
     BaseLrScheduler,
     create_lr_scheduler,
 )
+from predict import predict_transcription
 from preprocess import Preprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
 from stats.log import log_epoch_stats, log_experiment, log_results, log_top_checkpoints
@@ -211,21 +212,6 @@ def run_validation(
         pred=output_text[0],
     )
     return result
-
-
-@torch.inference_mode()
-def predict_transcription(
-    model: VisionEncoderDecoderModel,
-    tokeniser: AutoTokenizer,
-    batch: Batch,
-    device: torch.device,
-    amp_scaler: Optional[amp.GradScaler] = None,
-) -> str:
-    # Automatically run it in mixed precision (FP16) if a scaler is given
-    with amp.autocast(enabled=amp_scaler is not None):
-        outputs = model.generate(pixel_values=batch.images.to(device))
-        output_text = tokeniser.batch_decode(outputs, skip_special_tokens=True)
-    return output_text
 
 
 def train(
