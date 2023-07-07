@@ -108,6 +108,7 @@ def run_train(
             outputs = model(
                 pixel_values=batch.images.to(device),
                 labels=batch.targets.to(device),
+                interpolate_pos_encoding=True,
             )
         loss = outputs.loss
         losses.append(loss.item())
