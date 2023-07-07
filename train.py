@@ -625,6 +625,7 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
         options.gt_train,
         tokeniser=tokeniser,
         img_preprocessor=img_preprocessor,
+        no_greyscale=options.no_greyscale,
         name="Train",
     )
     train_sampler: Optional[DistributedSampler] = (
@@ -652,7 +653,11 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
     for val_gt in options.gt_validation:
         name, gt_path = split_named_arg(val_gt)
         validation_dataset = CompetitionDataset(
-            gt_path, tokeniser=tokeniser, img_preprocessor=img_preprocessor, name=name
+            gt_path,
+            tokeniser=tokeniser,
+            img_preprocessor=img_preprocessor,
+            no_greyscale=options.no_greyscale,
+            name=name,
         )
         validation_sampler: Optional[DistributedSampler] = (
             DistributedSampler(

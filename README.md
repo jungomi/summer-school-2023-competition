@@ -39,11 +39,19 @@ If you'd like to use a different installation method or another CUDA version wit
 Training is done with the `train.py` script:
 
 ```sh
-python train.py --name some-name --train-gt /path/to/gt.tsv --validation-gt /path/to/gt.tsv difficult=/another/path/some-gt.tsv --fp16 --height 128 --ema
+python train.py --name some-name --train-gt /path/to/gt.tsv --validation-gt /path/to/gt.tsv difficult=/another/path/some-gt.tsv --fp16 --trocr-preprocessing --ema
 ```
 
 The `--name` option is used to give it a name, otherwise the current date and time is used as a name and `-c` is to
 resume from the given checkpoint, if not specified it starts fresh.
+
+`--trocr-preprocessing` is necessary to use the default TrOCR preprocessing, otherwise it's resized to keep the aspect
+ratio based on the `--height` that was set. Additionally, it is binarised (greyscaled with background being set to pure
+white) unless `--no-greyscale` is specified.
+
+The best and latest models are saved in the `models/` directory under the experiment name, where the best model is the
+average model across all epochs up to that point with the Exponential Moving Average (if `--ema` is given). These models
+can also be used as a pretrained model to further finetune them by providing them to the `--pretrained` option.
 
 Modern GPUs contain Tensor Cores (starting from V100 and RTX series) which enable mixed precision calculation, using
 optimised fp16 operations while still keeping the fp32 weights and therefore precision.

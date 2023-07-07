@@ -11,7 +11,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, TrOCRProcessor
 
-from preprocess import Preprocessor
+from preprocess import Preprocessor, greyscale
 
 
 @dataclass
@@ -84,6 +84,7 @@ class CompetitionDataset(Dataset):
         gt: Union[str, os.PathLike],
         tokeniser: AutoTokenizer,
         img_preprocessor: Union[Preprocessor, TrOCRProcessor] = Preprocessor(),
+        no_greyscale: bool = False,
         root: Optional[Union[str, os.PathLike]] = None,
         name: Optional[str] = None,
     ):
@@ -92,6 +93,7 @@ class CompetitionDataset(Dataset):
         self.name = self.gt.stem if name is None else name
         self.tokeniser = tokeniser
         self.img_preprocessor = img_preprocessor
+        self.no_greyscale = no_greyscale
 
         with open(self.gt, "r", encoding="utf-8") as fd:
             reader = csv.reader(
@@ -122,7 +124,18 @@ class CompetitionDataset(Dataset):
         img = Image.open(sample.path).convert("RGB")
         if self.img_preprocessor:
             if isinstance(self.img_preprocessor, TrOCRProcessor):
-                img_t = self.img_preprocessor(img, return_tensors="pt").pixel_values
+                if self.no_greyscale:
+                    img_t = self.img_preprocessor(img, return_tensors="pt").pixel_values
+                else:
+                    # The binarisation (greyscale) takes a Tensor whereas TrOCR
+                    # preprocessor wants an RGB Image (PIL), so need to convert it back
+                    # and forth.
+                    img_grey = TF.to_pil_image(
+                        greyscale(TF.to_tensor(img.convert("L")))
+                    ).convert("RGB")
+                    img_t = self.img_preprocessor(
+                        img_grey, return_tensors="pt"
+                    ).pixel_values
                 img_t = img_t.squeeze(0)
             else:
                 img_t = TF.to_tensor(img.convert("L"))
