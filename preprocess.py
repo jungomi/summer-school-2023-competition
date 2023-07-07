@@ -81,7 +81,7 @@ def resize(img: torch.Tensor, new_height: int) -> torch.Tensor:
     _, height, width = img.size()
     new_width = width * new_height // height
     img = img.unsqueeze(0)
-    if new_width > width:
+    if new_width >= width:
         img = F.interpolate(
             img, size=(new_height, new_width), mode="bilinear", align_corners=False
         )
