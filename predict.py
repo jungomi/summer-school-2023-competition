@@ -1,15 +1,13 @@
-import argparse
 import csv
-from pathlib import Path
 from typing import Optional
 
 import torch
 import torch.cuda.amp as amp
-import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
 
+from config.predict import PredictConfig
 from dataset import Batch, Collate, CompetitionDataset
 from preprocess import Preprocessor
 
@@ -29,102 +27,26 @@ def predict_transcription(
     return output_text
 
 
-class DEFAULTS:
-    seed = 1234
-    batch_size = 8
-    num_workers = mp.cpu_count()
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "file",
-        metavar="TSV",
-        type=Path,
-        help="Path to the TSV file to predict",
-    )
-    parser.add_argument(
-        "-o",
-        "--out",
-        dest="out",
-        type=Path,
-        help=(
-            "Path of the output file "
-            "[Default: prediction.tsv in the directory of the input file]"
-        ),
-    )
-    parser.add_argument(
-        "-m",
-        "--model",
-        dest="model",
-        required=True,
-        help="Model name or path to the pretrained model",
-    )
-    parser.add_argument(
-        "--trocr-preprocessing",
-        dest="trocr_preprocessing",
-        action="store_true",
-        help="Use the default TrOCR prepreocessing instead of the default one",
-    )
-    parser.add_argument(
-        "-b",
-        "--batch-size",
-        dest="batch_size",
-        default=DEFAULTS.batch_size,
-        type=int,
-        help="Size of data batches [Default: {}]".format(DEFAULTS.batch_size),
-    )
-    parser.add_argument(
-        "-w",
-        "--workers",
-        dest="num_workers",
-        default=DEFAULTS.num_workers,
-        type=int,
-        help="Number of workers for loading the data [Default: {}]".format(
-            DEFAULTS.num_workers
-        ),
-    )
-    parser.add_argument(
-        "--no-cuda",
-        dest="no_cuda",
-        action="store_true",
-        help="Do not use CUDA even if it's available",
-    )
-    parser.add_argument(
-        "--fp16",
-        dest="fp16",
-        action="store_true",
-        help="Enable mixed precision training (FP16)",
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        dest="seed",
-        default=DEFAULTS.seed,
-        type=int,
-        help="Seed for random initialisation [Default: {}]".format(DEFAULTS.seed),
-    )
-    return parser
-
-
-def main():
-    options = build_parser().parse_args()
-    use_cuda = torch.cuda.is_available() and not options.no_cuda
+def main() -> None:
+    cfg = PredictConfig.parse_config()
+    use_cuda = torch.cuda.is_available() and not cfg.hardware.no_cuda
     if use_cuda:
         # Somehow this fixes an unknown error on Windows.
         torch.cuda.current_device()
-    torch.manual_seed(options.seed)
+    torch.manual_seed(cfg.hardware.seed)
     device = torch.device("cuda" if use_cuda else "cpu")
-    amp_scaler = amp.GradScaler() if use_cuda and options.fp16 else None
+    amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
     torch.set_grad_enabled(False)
 
-    model = VisionEncoderDecoderModel.from_pretrained(options.model).to(device).eval()
-    processor = TrOCRProcessor.from_pretrained(options.model)
+    model = VisionEncoderDecoderModel.from_pretrained(cfg.model).to(device).eval()
+    processor = TrOCRProcessor.from_pretrained(cfg.model)
     tokeniser = processor.tokenizer
     img_preprocessor = (
         processor
-        if options.trocr_preprocessing
-        else Preprocessor(height=options.height, no_greyscale=options.no_greyscale)
+        if cfg.preprocess.trocr_preprocessing
+        else Preprocessor(
+            height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
+        )
     )
 
     # set special tokens used for creating the decoder_input_ids from the labels
@@ -141,19 +63,19 @@ def main():
     model.config.length_penalty = 2.0
     model.config.num_beams = 4
 
-    input_dir = options.file.parent
-    out_path = input_dir / "prediction.tsv" if options.out is None else options.out
+    input_dir = cfg.file.parent
+    out_path = input_dir / "prediction.tsv" if cfg.out is None else cfg.out
     collate = Collate(pad_token_id=tokeniser.pad_token_id)
     dataset = CompetitionDataset(
-        options.file,
+        cfg.file,
         tokeniser=tokeniser,
         img_preprocessor=img_preprocessor,
         name=f"Predicting {out_path}",
     )
     data_loader = DataLoader(
         dataset,
-        batch_size=options.batch_size,
-        num_workers=options.num_workers,
+        batch_size=cfg.hardware.batch_size,
+        num_workers=cfg.hardware.num_workers,
         shuffle=False,
         pin_memory=use_cuda,
         collate_fn=collate,

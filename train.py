@@ -1,4 +1,3 @@
-import argparse
 import os
 import time
 from typing import Dict, List, Optional
@@ -17,58 +16,19 @@ from torchmetrics.functional.text import char_error_rate, word_error_rate
 from torchvision import transforms
 from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
 
+from config.train import TrainConfig
 from dataset import Batch, Collate, CompetitionDataset  # noqa: F401
 from debugger import breakpoint
 from ema import AveragedModel
-from lr_scheduler import (
-    LR_SCHEDULER_KINDS,
-    LR_WARMUP_MODES,
-    BaseLrScheduler,
-    create_lr_scheduler,
-)
+from lr_scheduler import BaseLrScheduler, create_lr_scheduler
 from predict import predict_transcription
 from preprocess import Preprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
 from stats.log import log_epoch_stats, log_experiment, log_results, log_top_checkpoints
-from utils import save_model, split_named_arg, sync_dict_values, unwrap_model
+from utils import save_model, sync_dict_values, unwrap_model
 
 # Revert the normalisation, i.e. going from [-1, 1] to [0, 1]
 unnormalise = transforms.Normalize(mean=(-1,), std=(2,))
-
-
-# This is a class containing all defaults, it is not meant to be instantiated, but
-# serves as a sort of const struct.
-# It uses nested classes, which also don't follow naming conventions because the idea is
-# to have it as a sort of struct. This is kind of like having th defaults defined in
-# submodules if modules where first-class constructs, but in one file, because these are
-# purely for the training and being able to group various options into one category is
-# really nice.
-# e.g. DEFAULTS.lr.scheduler accesses the default learning rate scheduler, which is in
-# the category lr, where there are various other options regarding the learning rate.
-class DEFAULTS:
-    seed = 1234
-    batch_size = 8
-    num_workers = mp.cpu_count()
-    num_gpus = torch.cuda.device_count()
-    num_epochs = 100
-    height = 128
-    pretrained = "microsoft/trocr-base-handwritten"
-
-    class lr:
-        peak_lr = 2e-5
-        scheduler = "inv-sqrt"
-        warmup_mode = "linear"
-        warmup_steps = 500
-        warmup_start_lr = 0.0
-
-    class optim:
-        adam_beta2 = 0.98
-        adam_eps = 1e-8
-        weight_decay = 1e-4
-        label_smoothing = 0.1
-
-    class ema:
-        decay = 0.9999
 
 
 def run_train(
@@ -225,7 +185,7 @@ def train(
     lr_scheduler: BaseLrScheduler,
     amp_scaler: Optional[amp.GradScaler] = None,
     ema_model: Optional[AveragedModel] = None,
-    num_epochs: int = DEFAULTS.num_epochs,
+    num_epochs: int = 100,
     best_metric: str = METRICS[0].key,
 ):
     tokeniser = processor
@@ -341,266 +301,62 @@ def train(
         logger.end(epoch_text, prefix=False)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--gt-train",
-        dest="gt_train",
-        required=True,
-        type=str,
-        help="Path to the ground truth JSON file used for training",
-    )
-    parser.add_argument(
-        "--gt-validation",
-        dest="gt_validation",
-        nargs="+",
-        metavar="[NAME=]PATH",
-        required=True,
-        type=str,
-        help=(
-            "List of ground truth JSON files used for validation "
-            "If no name is specified it uses the name of the ground truth file. "
-        ),
-    )
-    parser.add_argument(
-        "--height",
-        dest="height",
-        default=DEFAULTS.height,
-        type=int,
-        help="Height the images are resized to [Default: {}]".format(DEFAULTS.height),
-    )
-    parser.add_argument(
-        "-n",
-        "--num-epochs",
-        dest="num_epochs",
-        default=DEFAULTS.num_epochs,
-        type=int,
-        help="Number of epochs to train [Default: {}]".format(DEFAULTS.num_epochs),
-    )
-    parser.add_argument(
-        "-b",
-        "--batch-size",
-        dest="batch_size",
-        default=DEFAULTS.batch_size,
-        type=int,
-        help="Size of data batches [Default: {}]".format(DEFAULTS.batch_size),
-    )
-    parser.add_argument(
-        "-w",
-        "--workers",
-        dest="num_workers",
-        default=DEFAULTS.num_workers,
-        type=int,
-        help="Number of workers for loading the data [Default: {}]".format(
-            DEFAULTS.num_workers
-        ),
-    )
-    parser.add_argument(
-        "-g",
-        "--gpus",
-        dest="num_gpus",
-        default=DEFAULTS.num_gpus,
-        type=int,
-        help="Number of GPUs to use [Default: {}]".format(DEFAULTS.num_gpus),
-    )
-    parser.add_argument(
-        "-l",
-        "--learning-rate",
-        default=DEFAULTS.lr.peak_lr,
-        dest="lr",
-        type=float,
-        help="Peak learning rate to use [Default: {}]".format(DEFAULTS.lr.peak_lr),
-    )
-    parser.add_argument(
-        "--lr-scheduler",
-        dest="lr_scheduler",
-        default=DEFAULTS.lr.scheduler,
-        choices=LR_SCHEDULER_KINDS,
-        help="Learning rate scheduler kind to use [Default: {}]".format(
-            DEFAULTS.lr.scheduler
-        ),
-    )
-    parser.add_argument(
-        "--lr-warmup",
-        dest="lr_warmup",
-        default=DEFAULTS.lr.warmup_steps,
-        type=int,
-        help="Number of linear warmup steps for the learning rate [Default: {}]".format(
-            DEFAULTS.lr.warmup_steps
-        ),
-    )
-    parser.add_argument(
-        "--lr-warmup-start-lr",
-        dest="lr_warmup_start_lr",
-        default=DEFAULTS.lr.warmup_start_lr,
-        type=float,
-        help="Learning rate to start the warmup from [Default: {}]".format(
-            DEFAULTS.lr.warmup_start_lr
-        ),
-    )
-    parser.add_argument(
-        "--lr-warmup-mode",
-        dest="lr_warmup_mode",
-        default=DEFAULTS.lr.warmup_mode,
-        choices=LR_WARMUP_MODES,
-        help="How the warmup is performed [Default: {}]".format(
-            DEFAULTS.lr.warmup_mode
-        ),
-    )
-    parser.add_argument(
-        "--adam-beta2",
-        dest="adam_beta2",
-        default=DEFAULTS.optim.adam_beta2,
-        type=float,
-        help="β₂ for the Adam optimiser [Default: {}]".format(
-            DEFAULTS.optim.adam_beta2
-        ),
-    )
-    parser.add_argument(
-        "--adam-eps",
-        dest="adam_eps",
-        default=DEFAULTS.optim.adam_eps,
-        type=float,
-        help="Epsilon for the Adam optimiser [Default: {}]".format(
-            DEFAULTS.optim.adam_eps
-        ),
-    )
-    parser.add_argument(
-        "--weight-decay",
-        dest="weight_decay",
-        default=DEFAULTS.optim.weight_decay,
-        type=float,
-        help="Weight decay of the optimiser [Default: {}]".format(
-            DEFAULTS.optim.weight_decay
-        ),
-    )
-    parser.add_argument(
-        "--label-smoothing",
-        dest="label_smoothing",
-        default=DEFAULTS.optim.label_smoothing,
-        type=float,
-        help="Label smoothing value [Default: {}]".format(
-            DEFAULTS.optim.label_smoothing
-        ),
-    )
-    parser.add_argument(
-        "-p",
-        "--pretrained",
-        dest="pretrained",
-        default=DEFAULTS.pretrained,
-        help="Model name or path to the pretrained model [Default: {}]".format(
-            DEFAULTS.pretrained
-        ),
-    )
-    parser.add_argument(
-        "--trocr-preprocessing",
-        dest="trocr_preprocessing",
-        action="store_true",
-        help="Use the default TrOCR prepreocessing instead of the default one",
-    )
-    parser.add_argument(
-        "--no-greyscale",
-        dest="no_greyscale",
-        action="store_true",
-        help="Do not convert the images to greyscale (keep RGB)",
-    )
-    parser.add_argument(
-        "--no-cuda",
-        dest="no_cuda",
-        action="store_true",
-        help="Do not use CUDA even if it's available",
-    )
-    parser.add_argument(
-        "--no-persistent-workers",
-        dest="no_persistent_workers",
-        action="store_true",
-        help=(
-            "Do not persist workers after the epoch ends but reinitialise them at the "
-            "start of every epoch. (Slower but uses much less RAM)"
-        ),
-    )
-    parser.add_argument(
-        "--name",
-        dest="name",
-        type=str,
-        help="Name of the experiment",
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        dest="seed",
-        default=DEFAULTS.seed,
-        type=int,
-        help="Seed for random initialisation [Default: {}]".format(DEFAULTS.seed),
-    )
-    parser.add_argument(
-        "--fp16",
-        dest="fp16",
-        action="store_true",
-        help="Enable mixed precision training (FP16)",
-    )
-    parser.add_argument(
-        "--ema",
-        dest="ema_decay",
-        type=float,
-        # const with nargs=? is essentially a default when the option is specified
-        # without an argument (but remains None when it's not supplied).
-        const=DEFAULTS.ema.decay,
-        nargs="?",
-        help=(
-            "Activate expontential moving average (EMA) of model weights. "
-            "Optionally, specify the decay / momentum / alpha of the EMA model. "
-            "The value should be very close to 1, i.e. at least 3-4 9s after "
-            "the decimal point. "
-            "If the flag is specified without a value, it defaults to {}."
-        ).format(DEFAULTS.ema.decay),
-    )
-    return parser
-
-
-def main():
-    options = build_parser().parse_args()
-    use_cuda = torch.cuda.is_available() and not options.no_cuda
+def main() -> None:
+    # Config needs to be parsed here just to know whether to launch multiple processes.
+    cfg = TrainConfig.parse_config()
+    use_cuda = torch.cuda.is_available() and not cfg.hardware.no_cuda
     if use_cuda:
         # Somehow this fixes an unknown error on Windows.
         torch.cuda.current_device()
 
-    if use_cuda and options.num_gpus > 1:
+    if use_cuda and cfg.hardware.num_gpus > 1:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12345"
-        mp.spawn(main_entry, nprocs=options.num_gpus, args=(options, True))
+        mp.spawn(main_entry, nprocs=cfg.hardware.num_gpus, args=(True,))
     else:
-        main_entry(0, options)
+        main_entry(0)
 
 
-def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = False):
+def main_entry(gpu_id: int, distributed: bool = False):
+    # Parser needs to be rebuilt, since it can't be serialised.
+    parser = TrainConfig.create_parser()
+    # Parsing the args again is necessary because otherwise the arguments are not added
+    # properly, it adds them before parsing the arguments.
+    # As an alternative, parser._preprocessing() could be called, but might as well be
+    # sure that everything is exactly as it would be for the real arguments.
+    # So it's easier to just parse them here instead of passing them from the main
+    # process.
+    options = parser.parse_args()
+    cfg: TrainConfig = options.config
+
     if distributed:
         dist.init_process_group(
             backend="nccl",
             rank=gpu_id,
-            world_size=options.num_gpus,
+            world_size=cfg.hardware.num_gpus,
             init_method="env://",
         )
         torch.cuda.set_device(gpu_id)
-    torch.manual_seed(options.seed)
-    use_cuda = torch.cuda.is_available() and not options.no_cuda
+    torch.manual_seed(cfg.hardware.seed)
+    use_cuda = torch.cuda.is_available() and not cfg.hardware.no_cuda
     device = torch.device("cuda" if use_cuda else "cpu")
-    logger = lavd.Logger(options.name, disabled=gpu_id != 0)
-    # Parser needs to be rebuilt, since it can't be serialised and it is needed to even
-    # detect the number of GPUs, but it's only used to log it.
-    parser = build_parser() if gpu_id == 0 else None
+    logger = lavd.Logger(cfg.name, disabled=gpu_id != 0)
 
-    amp_scaler = amp.GradScaler() if use_cuda and options.fp16 else None
-    persistent_workers = not options.no_persistent_workers and options.num_workers > 0
+    amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
+    persistent_workers = (
+        not cfg.hardware.no_persistent_workers and cfg.hardware.num_workers > 0
+    )
 
-    model = VisionEncoderDecoderModel.from_pretrained(options.pretrained).to(device)
+    model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained).to(device)
     model.encoder.pooler.requires_grad_(False)
-    processor = TrOCRProcessor.from_pretrained(options.pretrained)
+    processor = TrOCRProcessor.from_pretrained(cfg.model.pretrained)
     tokeniser = processor.tokenizer
     img_preprocessor = (
         processor
-        if options.trocr_preprocessing
-        else Preprocessor(height=options.height, no_greyscale=options.no_greyscale)
+        if cfg.preprocess.trocr_preprocessing
+        else Preprocessor(
+            height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
+        )
     )
 
     # set special tokens used for creating the decoder_input_ids from the labels
@@ -622,23 +378,23 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
 
     collate = Collate(pad_token_id=tokeniser.pad_token_id)
     train_dataset = CompetitionDataset(
-        options.gt_train,
+        cfg.gt_train,
         tokeniser=tokeniser,
         img_preprocessor=img_preprocessor,
-        no_greyscale=options.no_greyscale,
+        no_greyscale=cfg.preprocess.no_greyscale,
         name="Train",
     )
     train_sampler: Optional[DistributedSampler] = (
         DistributedSampler(
-            train_dataset, num_replicas=options.num_gpus, rank=gpu_id, shuffle=True
+            train_dataset, num_replicas=cfg.hardware.num_gpus, rank=gpu_id, shuffle=True
         )
         if distributed
         else None
     )
     train_data_loader = DataLoader(
         train_dataset,
-        batch_size=options.batch_size,
-        num_workers=options.num_workers,
+        batch_size=cfg.hardware.batch_size,
+        num_workers=cfg.hardware.num_workers,
         # Only shuffle when not using a sampler
         shuffle=train_sampler is None,
         sampler=train_sampler,
@@ -650,19 +406,18 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
     )
 
     validation_data_loaders = []
-    for val_gt in options.gt_validation:
-        name, gt_path = split_named_arg(val_gt)
+    for val_gt in cfg.gt_validation:
         validation_dataset = CompetitionDataset(
-            gt_path,
+            val_gt.path,
             tokeniser=tokeniser,
             img_preprocessor=img_preprocessor,
-            no_greyscale=options.no_greyscale,
-            name=name,
+            no_greyscale=cfg.preprocess.no_greyscale,
+            name=val_gt.name,
         )
         validation_sampler: Optional[DistributedSampler] = (
             DistributedSampler(
                 validation_dataset,
-                num_replicas=options.num_gpus,
+                num_replicas=cfg.hardware.num_gpus,
                 rank=gpu_id,
                 shuffle=False,
             )
@@ -671,8 +426,8 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
         )
         validation_data_loader = DataLoader(
             validation_dataset,
-            batch_size=options.batch_size,
-            num_workers=options.num_workers,
+            batch_size=cfg.hardware.batch_size,
+            num_workers=cfg.hardware.num_workers,
             shuffle=False,
             sampler=validation_sampler,
             pin_memory=use_cuda,
@@ -686,29 +441,25 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
 
     optimiser = optim.AdamW(
         [param for param in model.parameters() if param.requires_grad],
-        lr=options.lr,
-        betas=(0.9, options.adam_beta2),
-        eps=options.adam_eps,
+        lr=cfg.lr.peak_lr,
+        betas=(0.9, cfg.optim.adam_beta2),
+        eps=cfg.optim.adam_eps,
     )
 
     if distributed:
         model = DistributedDataParallel(  # type: ignore
             model, device_ids=[gpu_id], find_unused_parameters=False
         )
-    ema_model = (
-        None
-        if options.ema_decay is None
-        else AveragedModel(model, ema_alpha=options.ema_decay)
-    )
+    ema_model = None if cfg.ema is None else AveragedModel(model, ema_alpha=cfg.ema)
 
     lr_scheduler = create_lr_scheduler(
-        options.lr_scheduler,
+        cfg.lr.scheduler,
         optimiser,
-        peak_lr=options.lr,
-        warmup_steps=options.lr_warmup,
-        warmup_start_lr=options.lr_warmup_start_lr,
-        warmup_mode=options.lr_warmup_mode,
-        total_steps=len(train_data_loader) * options.num_epochs,
+        peak_lr=cfg.lr.peak_lr,
+        warmup_steps=cfg.lr.warmup_steps,
+        warmup_start_lr=cfg.lr.warmup_start_lr,
+        warmup_mode=cfg.lr.warmup_mode,
+        total_steps=len(train_data_loader) * cfg.num_epochs,
         end_lr=1e-8,
         # To not crash when choosing schedulers that don't support all arguments.
         allow_extra_args=True,
@@ -741,7 +492,7 @@ def main_entry(gpu_id: int, options: argparse.Namespace, distributed: bool = Fal
         lr_scheduler=lr_scheduler,
         amp_scaler=amp_scaler,
         ema_model=ema_model,
-        num_epochs=options.num_epochs,
+        num_epochs=cfg.num_epochs,
     )
 
 
