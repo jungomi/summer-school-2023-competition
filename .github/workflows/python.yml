@@ -29,3 +29,5 @@ jobs:
       run: black --check --diff .
     - name: Imports Formatting
       run: isort --check --diff .
+    - name: Tests
+      run: pytest -v

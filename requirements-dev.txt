@@ -3,3 +3,4 @@ mypy==1.4.1
 black==23.3.0
 isort==5.12.0
 debugpy==1.6.7
+pytest==7.4.0
