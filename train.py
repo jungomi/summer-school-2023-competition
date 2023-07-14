@@ -305,24 +305,34 @@ def train(
 def main() -> None:
     # Config needs to be parsed here just to know whether to launch multiple processes.
     cfg = TrainConfig.parse_config()
-    use_cuda = torch.cuda.is_available() and not cfg.hardware.no_cuda
-    if use_cuda:
+    num_gpus = cfg.hardware.actual_num_gpus()
+    if cfg.hardware.use_cuda():
         # Somehow this fixes an unknown error on Windows.
         torch.cuda.current_device()
 
     # Limit visible CPUs
     if cfg.hardware.cpus:
         psutil.Process().cpu_affinity(cfg.hardware.cpus.values)
+    # Limit visible GPUs
+    # Note: Cannot use CUDA_VISIBLE_DEVICES because that needs to be set before the
+    # process started. It would technically work for the Multi-GPU case, but not for the
+    # Single-GPU that isn't CUDA:0. So this just assigns the GPU ids to the different
+    # processes (ranks).
+    device_ids = (
+        cfg.hardware.gpus.values if cfg.hardware.gpus and num_gpus > 0 else None
+    )
 
-    if use_cuda and cfg.hardware.num_gpus > 1:
+    if num_gpus > 1:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12345"
-        mp.spawn(main_entry, nprocs=cfg.hardware.num_gpus, args=(True,))
+        mp.spawn(main_entry, nprocs=num_gpus, args=(True, device_ids))
     else:
-        main_entry(0)
+        main_entry(0, device_ids=device_ids)
 
 
-def main_entry(gpu_id: int, distributed: bool = False):
+def main_entry(
+    rank: int, distributed: bool = False, device_ids: Optional[List[int]] = None
+):
     # Parser needs to be rebuilt, since it can't be serialised.
     parser = TrainConfig.create_parser()
     # Parsing the args again is necessary because otherwise the arguments are not added
@@ -337,15 +347,17 @@ def main_entry(gpu_id: int, distributed: bool = False):
     if distributed:
         dist.init_process_group(
             backend="nccl",
-            rank=gpu_id,
+            rank=rank,
             world_size=cfg.hardware.num_gpus,
             init_method="env://",
         )
-        torch.cuda.set_device(gpu_id)
+    # The default cuda device is set according to the available GPUs, if they were
+    # not limited, it is equivalent to the rank.
+    torch.cuda.set_device(rank if device_ids is None else device_ids[rank])
     torch.manual_seed(cfg.hardware.seed)
-    use_cuda = torch.cuda.is_available() and not cfg.hardware.no_cuda
+    use_cuda = cfg.hardware.use_cuda()
     device = torch.device("cuda" if use_cuda else "cpu")
-    logger = lavd.Logger(cfg.name, disabled=gpu_id != 0)
+    logger = lavd.Logger(cfg.name, disabled=rank != 0)
 
     amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
     num_workers = cfg.hardware.actual_num_workers()
@@ -390,7 +402,7 @@ def main_entry(gpu_id: int, distributed: bool = False):
     )
     train_sampler: Optional[DistributedSampler] = (
         DistributedSampler(
-            train_dataset, num_replicas=cfg.hardware.num_gpus, rank=gpu_id, shuffle=True
+            train_dataset, num_replicas=cfg.hardware.num_gpus, rank=rank, shuffle=True
         )
         if distributed
         else None
@@ -422,7 +434,7 @@ def main_entry(gpu_id: int, distributed: bool = False):
             DistributedSampler(
                 validation_dataset,
                 num_replicas=cfg.hardware.num_gpus,
-                rank=gpu_id,
+                rank=rank,
                 shuffle=False,
             )
             if distributed
@@ -452,7 +464,7 @@ def main_entry(gpu_id: int, distributed: bool = False):
 
     if distributed:
         model = DistributedDataParallel(  # type: ignore
-            model, device_ids=[gpu_id], find_unused_parameters=False
+            model, device_ids=[rank], find_unused_parameters=False
         )
     ema_model = None if cfg.ema is None else AveragedModel(model, ema_alpha=cfg.ema)
 

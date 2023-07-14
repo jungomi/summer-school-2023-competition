@@ -16,14 +16,17 @@ class HardwareConfig:
 
     # Random seed for reproducibility
     seed: int = field(default=1234, alias="-s")
-    # Batch size
+    # Batch size per GPU
     batch_size: int = field(default=8, alias="-b")
     # Number of workers to use for data loading. If not specified, it will use the
     # number of available CPUs equally distributed across the GPUs.
     # Note: Specifying this value signifies the number of workers per GPU not the total.
     num_workers: Optional[int] = field(default=None, alias="-w", nargs=None)
     # Number of GPUs to use
-    num_gpus: int = field(default=torch.cuda.device_count(), alias="-g")
+    num_gpus: int = torch.cuda.device_count()
+    # GPUs to use (given as a list or range, similar to taskset). If not specified, will
+    # use all available GPUs. Specifying this will overrule the --num-gpus option.
+    gpus: Optional[RangeList] = field(default=None, nargs=None)
     # CPUs to use (given as a list or range, similar to taskset). If not specified, will
     # use all available CPUs.
     cpus: Optional[RangeList] = field(default=None, nargs=None)
@@ -35,6 +38,15 @@ class HardwareConfig:
     # every epoch. (Slower but uses much less RAM)
     no_persistent_workers: bool = field(action="store_true")
 
+    def use_cuda(self) -> bool:
+        return torch.cuda.is_available() and not self.no_cuda
+
+    def actual_num_gpus(self) -> int:
+        if self.use_cuda():
+            return len(self.gpus.values) if self.gpus else self.num_gpus
+        else:
+            return 0
+
     def actual_num_workers(self) -> int:
         num_workers = self.num_workers
         if num_workers is None:
@@ -43,7 +55,6 @@ class HardwareConfig:
             # that all GPUs get an equal number of workers.
             # This is not done when the option is specified manually, since that is on
             # a per-worker basis rather than the total (similar to batch size)
-            use_cuda = torch.cuda.is_available() and not self.no_cuda
-            if use_cuda and self.num_gpus > 1:
-                num_workers = num_workers // self.num_gpus
+            if self.actual_num_gpus() > 1:
+                num_workers = num_workers // self.actual_num_gpus()
         return num_workers
