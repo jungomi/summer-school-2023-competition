@@ -4,12 +4,13 @@ from typing import List, Optional
 
 from simple_parsing import field
 
+from .arg_types import NamedPath
 from .hardware import HardwareConfig
 from .lr import LrConfig
 from .model import ModelConfig
 from .optim import OptimConfig
 from .preprocess import PreprocessConfig
-from .utils import ConfigEntry, NamedPath
+from .utils import ConfigEntry
 
 
 @dataclass

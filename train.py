@@ -3,6 +3,7 @@ import time
 from typing import Dict, List, Optional
 
 import lavd
+import psutil
 import torch
 import torch.cuda.amp as amp
 import torch.distributed as dist
@@ -309,6 +310,10 @@ def main() -> None:
         # Somehow this fixes an unknown error on Windows.
         torch.cuda.current_device()
 
+    # Limit visible CPUs
+    if cfg.hardware.cpus:
+        psutil.Process().cpu_affinity(cfg.hardware.cpus.values)
+
     if use_cuda and cfg.hardware.num_gpus > 1:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12345"
@@ -343,9 +348,8 @@ def main_entry(gpu_id: int, distributed: bool = False):
     logger = lavd.Logger(cfg.name, disabled=gpu_id != 0)
 
     amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
-    persistent_workers = (
-        not cfg.hardware.no_persistent_workers and cfg.hardware.num_workers > 0
-    )
+    num_workers = cfg.hardware.actual_num_workers()
+    persistent_workers = not cfg.hardware.no_persistent_workers and num_workers > 0
 
     model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained).to(device)
     model.encoder.pooler.requires_grad_(False)
@@ -394,7 +398,7 @@ def main_entry(gpu_id: int, distributed: bool = False):
     train_data_loader = DataLoader(
         train_dataset,
         batch_size=cfg.hardware.batch_size,
-        num_workers=cfg.hardware.num_workers,
+        num_workers=num_workers,
         # Only shuffle when not using a sampler
         shuffle=train_sampler is None,
         sampler=train_sampler,
@@ -427,7 +431,7 @@ def main_entry(gpu_id: int, distributed: bool = False):
         validation_data_loader = DataLoader(
             validation_dataset,
             batch_size=cfg.hardware.batch_size,
-            num_workers=cfg.hardware.num_workers,
+            num_workers=num_workers,
             shuffle=False,
             sampler=validation_sampler,
             pin_memory=use_cuda,

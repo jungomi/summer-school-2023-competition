@@ -1,1 +1,1 @@
-from .utils import ConfigEntry, NamedPath, create_parser  # noqa: F401
+from .utils import ConfigEntry, create_parser  # noqa: F401

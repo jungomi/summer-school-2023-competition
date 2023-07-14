@@ -75,7 +75,7 @@ def main() -> None:
     data_loader = DataLoader(
         dataset,
         batch_size=cfg.hardware.batch_size,
-        num_workers=cfg.hardware.num_workers,
+        num_workers=cfg.hardware.actual_num_workers(),
         shuffle=False,
         pin_memory=use_cuda,
         collate_fn=collate,
