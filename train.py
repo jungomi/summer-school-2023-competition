@@ -63,13 +63,19 @@ def run_train(
         dynamic_ncols=True,
     )
     for batch in data_loader:  # type: Batch
+        # Make the transfer non-blocking, may be slightly faster when used with
+        # pin_memory, but since there is no work between this and the forward pass of
+        # the model, there might not be any speed up, since it needs to wait anyway.
+        # At least it should not hurt.
+        images = batch.images.to(device, non_blocking=True)
+        targets = batch.targets.to(device, non_blocking=True)
         # The last batch may not be a full batch
         curr_batch_size = batch.images.size(0)
         # Automatically run it in mixed precision (FP16) if a scaler is given
         with amp.autocast(enabled=amp_scaler is not None):
             outputs = model(
-                pixel_values=batch.images.to(device),
-                labels=batch.targets.to(device),
+                pixel_values=images,
+                labels=targets,
                 interpolate_pos_encoding=True,
             )
         loss = outputs.loss
