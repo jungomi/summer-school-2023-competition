@@ -363,7 +363,16 @@ def main_entry(
     num_workers = cfg.hardware.actual_num_workers()
     persistent_workers = not cfg.hardware.no_persistent_workers and num_workers > 0
 
-    model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained).to(device)
+    spinner = logger.spinner(f"Loading Model ({device})", placement="right")
+    spinner.start()
+    # With the device as context manager the tensor creations are done onto that device
+    # rather than the CPU, which skips the intermediate CPU model that would be caused
+    # by Model(...).to(device) before transferring it onto the device.
+    # Note: This might not cover all creations, but as long as the best practices are
+    # followed, it will work fine. In this particular case it works flawlessly and makes
+    # the loading time roughly 4x faster.
+    with device:
+        model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained)
     model.encoder.pooler.requires_grad_(False)
     processor = TrOCRProcessor.from_pretrained(cfg.model.pretrained)
     tokeniser = processor.tokenizer
@@ -374,6 +383,7 @@ def main_entry(
             height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
         )
     )
+    spinner.stop()
 
     # set special tokens used for creating the decoder_input_ids from the labels
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id

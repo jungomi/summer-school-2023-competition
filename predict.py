@@ -38,7 +38,14 @@ def main() -> None:
     amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
     torch.set_grad_enabled(False)
 
-    model = VisionEncoderDecoderModel.from_pretrained(cfg.model).to(device).eval()
+    # With the device as context manager the tensor creations are done onto that device
+    # rather than the CPU, which skips the intermediate CPU model that would be caused
+    # by Model(...).to(device) before transferring it onto the device.
+    # Note: This might not cover all creations, but as long as the best practices are
+    # followed, it will work fine. In this particular case it works flawlessly and makes
+    # the loading time roughly 4x faster.
+    with device:
+        model = VisionEncoderDecoderModel.from_pretrained(cfg.model).eval()
     processor = TrOCRProcessor.from_pretrained(cfg.model)
     tokeniser = processor.tokenizer
     img_preprocessor = (
