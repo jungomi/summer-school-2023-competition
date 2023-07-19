@@ -69,6 +69,7 @@ def run_train(
         # At least it should not hurt.
         images = batch.images.to(device, non_blocking=True)
         targets = batch.targets.to(device, non_blocking=True)
+        target_padding_mask = batch.target_padding_mask.to(device, non_blocking=True)
         # The last batch may not be a full batch
         curr_batch_size = batch.images.size(0)
         # Automatically run it in mixed precision (FP16) if a scaler is given
@@ -76,6 +77,10 @@ def run_train(
             outputs = model(
                 pixel_values=images,
                 labels=targets,
+                # This is the negation (~) of the padding mask, because the
+                # attention mask is 1 for the tokens it needs to attend to, whereas the
+                # padding mask is 1 for the padding tokens.
+                decoder_attention_mask=~target_padding_mask,
                 interpolate_pos_encoding=True,
             )
         loss = outputs.loss
