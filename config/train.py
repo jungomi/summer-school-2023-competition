@@ -33,6 +33,10 @@ class TrainConfig(ConfigEntry):
     # The value should be very close to 1, i.e. at least 3-4 9s after the decimal point.
     # If the flag is specified without a value, it defaults to 0.9999.
     ema: Optional[float] = field(default=None, nargs="?", const=0.9999)
+    # Minimum length of the text/target. Set this to something higher than the potential
+    # maximum text length (in tokens) to get a fixed size of inputs, which can be useful
+    # for hardware optimisations.
+    text_min_length: int = 0
 
     model: ModelConfig = field(default_factory=ModelConfig)
     preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)

@@ -7,6 +7,10 @@ import torch.optim as optim
 
 class AveragedModel(optim.swa_utils.AveragedModel):
     def __init__(self, model: nn.Module, ema_alpha: Optional[float] = None):
+        # Compiled models have an _orig_mod attribute which stores the original model.
+        # Because it also forwards all attribute accesses, this would cause an issue for
+        # the averaged model, hence it the underlying model is used instead.
+        model = getattr(model, "_orig_mod", model)
         if ema_alpha is None:
             # Linear averaging (default)
             super().__init__(model, use_buffers=True)  # type: ignore

@@ -413,7 +413,9 @@ def main_entry(
     spinner = logger.spinner("Loading data", placement="right")
     spinner.start()
 
-    collate = Collate(pad_token_id=tokeniser.pad_token_id)
+    collate = Collate(
+        pad_token_id=tokeniser.pad_token_id, text_min_length=cfg.text_min_length
+    )
     train_dataset = CompetitionDataset(
         cfg.gt_train,
         tokeniser=tokeniser,
@@ -487,6 +489,17 @@ def main_entry(
         model = DistributedDataParallel(  # type: ignore
             model, device_ids=[rank], find_unused_parameters=False
         )
+    if cfg.model.compile:
+        # The compilation of the model needs to be after the DDP because there are some
+        # additonal optimisations for the distributed model.
+        model = torch.compile(model, backend=cfg.model.compile)
+        if collate.text_min_length == 0:
+            logger.eprintln(
+                "⚠️ [WARN]: --compile is used with no minimum text length, this will "
+                "most likely cause recompilation for each batch. Make sure to "
+                "get a fixed size by setting --text-min-length to a value "
+                "greater than the potential maximum number of tokens in the targets."
+            )
     ema_model = None if cfg.ema is None else AveragedModel(model, ema_alpha=cfg.ema)
 
     lr_scheduler = create_lr_scheduler(

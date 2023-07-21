@@ -39,10 +39,25 @@ class Batch:
 
 
 class Collate:
-    def __init__(self, pad_token_id: int):
-        self.pad_token_id = pad_token_id
+    """
+    A custom collate to pad the images and the text with the corresponding padding
+    values.
+    """
 
-    def __call__(self, data: List[Sample]):
+    def __init__(self, pad_token_id: int, text_min_length: int = 0):
+        """
+        Args:
+            pad_token_id (int): Id of the padding token defined by the tokeniser
+            text_min_length (int): Minimum length of the text/target. This can be
+                helpful to get a fixed size for hardware optimisations. If the maximum
+                length of a text in the batch exceeds this length, the batch will
+                e padded to the longest.
+                [Default: 0]
+        """
+        self.pad_token_id = pad_token_id
+        self.text_min_length = text_min_length
+
+    def __call__(self, data: List[Sample]) -> Batch:
         images = [d.image for d in data]
         max_width = max([img.size(2) for img in images])
         padded_images = [
@@ -62,7 +77,7 @@ class Collate:
         ]
         targets = [d.target for d in data]
         lengths = torch.tensor([len(t) for t in targets])
-        max_len = int(torch.max(lengths).item())
+        max_len = max(int(torch.max(lengths).item()), self.text_min_length)
         # Padding with the pad token, which is ignored by the loss.
         padded_targets = torch.tensor(
             [t + (max_len - len(t)) * [-100] for t in targets],
