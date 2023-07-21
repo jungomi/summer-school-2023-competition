@@ -2,7 +2,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from .serialise import serialise_arg
 
+
+@serialise_arg
 class NamedPath:
     """
     A path given as a command line option that can have an optional name.

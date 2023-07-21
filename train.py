@@ -25,7 +25,13 @@ from lr_scheduler import BaseLrScheduler, create_lr_scheduler
 from predict import predict_transcription
 from preprocess import Preprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
-from stats.log import log_epoch_stats, log_experiment, log_results, log_top_checkpoints
+from stats.log import (
+    log_config,
+    log_epoch_stats,
+    log_experiment,
+    log_results,
+    log_top_checkpoints,
+)
 from utils import save_model, sync_dict_values, unwrap_model
 
 # Revert the normalisation, i.e. going from [-1, 1] to [0, 1]
@@ -532,7 +538,9 @@ def main_entry(
         validation=validation_details,
         options=options,
         lr_scheduler=lr_scheduler,
+        config=cfg,
     )
+    log_config(logger, cfg)
     logger.log_command(parser, options)
 
     train(

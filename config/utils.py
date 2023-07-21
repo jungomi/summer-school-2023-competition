@@ -6,6 +6,7 @@ from simple_parsing import (
     ArgumentParser,
     DashVariant,
     NestedMode,
+    Serializable,
 )
 from simple_parsing.utils import Dataclass
 
@@ -37,10 +38,12 @@ ConfigEntryT = TypeVar("ConfigEntryT", bound="ConfigEntry")
 
 
 @dataclass
-class ConfigEntry:
+class ConfigEntry(Serializable):
     """
     Convenience for the main config entry, which can be subclassed to get an easy way to
     create the parser from the config. (essentially a mixin).
+
+    Also makes the serialisation easy, so it can be saved or loaded as/from a file.
 
     This assumes one main entry config and everything else is nested in this, rather
     than having them side by side.

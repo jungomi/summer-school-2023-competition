@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 import lavd
 import torch
 
+from config.utils import ConfigEntry
 from lr_scheduler import BaseLrScheduler
 
 from .dict_utils import get_recursive
@@ -80,15 +81,29 @@ def log_experiment(
     validation: Dict,
     options: argparse.Namespace,
     lr_scheduler: BaseLrScheduler,
+    config: ConfigEntry,
 ):
     infos = {
         "Train Dataset": train,
         "Validation Dataset": validation,
     }
     sections = {
-        "LR Scheduler": ["```"] + repr(lr_scheduler).splitlines() + ["```"],
+        "LR Scheduler": ["```python"] + repr(lr_scheduler).splitlines() + ["```"],
+        "Config": ["```yaml"]
+        + config.dumps_yaml(sort_keys=False, indent=2).splitlines()
+        + ["```"],
     }
     logger.log_summary(infos, sections, options)
+
+
+def log_config(
+    logger: lavd.Logger,
+    config: ConfigEntry,
+):
+    if logger.disabled:
+        return
+    path = logger.get_file_path("config", extension=".yaml")
+    config.save_yaml(path, sort_keys=False, indent=2)
 
 
 def log_results(

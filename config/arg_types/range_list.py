@@ -1,6 +1,9 @@
 from typing import List, Optional, Union
 
+from .serialise import serialise_arg
 
+
+@serialise_arg
 class RangeList:
     """
     A list of integer values that can either be specified as single values or ranges.
