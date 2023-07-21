@@ -8,6 +8,17 @@ from simple_parsing import field
 from .arg_types.range_list import RangeList
 
 
+def has_tensor_cores() -> bool:
+    """
+    Check whether the GPU has Tensor cores and therefore supports FP16.
+    This is the case for CUDA compute capability >= 7.0
+    """
+    if not torch.cuda.is_available():
+        return False
+    major, minor = torch.cuda.get_device_capability()
+    return major >= 7
+
+
 @dataclass
 class HardwareConfig:
     """
@@ -30,8 +41,8 @@ class HardwareConfig:
     # CPUs to use (given as a list or range, similar to taskset). If not specified, will
     # use all available CPUs.
     cpus: Optional[RangeList] = field(default=None, nargs=None)
-    # Enable mixed precision training (FP16)
-    fp16: bool = field(action="store_true")
+    # Do not use mixed precision training (FP16) even if it's available.
+    no_fp16: bool = field(action="store_true")
     # Do not use CUDA even if it's available
     no_cuda: bool = field(action="store_true")
     # Do not persist workers after the epoch ends but reinitialise them at the start of
@@ -40,6 +51,9 @@ class HardwareConfig:
 
     def use_cuda(self) -> bool:
         return torch.cuda.is_available() and not self.no_cuda
+
+    def use_fp16(self) -> bool:
+        return self.use_cuda() and has_tensor_cores() and not self.no_fp16
 
     def actual_num_gpus(self) -> int:
         if self.use_cuda():

@@ -376,7 +376,7 @@ def main_entry(
     device = torch.device("cuda" if use_cuda else "cpu")
     logger = lavd.Logger(cfg.name, disabled=rank != 0)
 
-    amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
+    amp_scaler = amp.GradScaler() if cfg.hardware.use_fp16() else None
     num_workers = cfg.hardware.actual_num_workers()
     persistent_workers = not cfg.hardware.no_persistent_workers and num_workers > 0
 
@@ -510,7 +510,7 @@ def main_entry(
                 "get a fixed size by setting --text-min-length to a value "
                 "greater than the potential maximum number of tokens in the targets."
             )
-    ema_model = None if cfg.ema is None else AveragedModel(model, ema_alpha=cfg.ema)
+    ema_model = None if cfg.no_ema else AveragedModel(model, ema_alpha=cfg.ema_alpha)
 
     lr_scheduler = create_lr_scheduler(
         cfg.lr.scheduler,

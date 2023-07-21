@@ -28,11 +28,11 @@ class TrainConfig(ConfigEntry):
     num_epochs: int = field(default=100, alias="-n")
     # Name of the experiment
     name: Optional[str] = None
-    # Activate expontential moving average (EMA) of model weights.
-    # Optionally, specify the decay / momentum / alpha of the EMA model.
+    # α / momentum / decay of the EMA model.
     # The value should be very close to 1, i.e. at least 3-4 9s after the decimal point.
-    # If the flag is specified without a value, it defaults to 0.9999.
-    ema: Optional[float] = field(default=None, nargs="?", const=0.9999)
+    ema_alpha: float = 0.9999
+    # Do not use the exponential moving average (EMA) of model weights.
+    no_ema: bool = field(action="store_true")
     # Minimum length of the text/target. Set this to something higher than the potential
     # maximum text length (in tokens) to get a fixed size of inputs, which can be useful
     # for hardware optimisations.

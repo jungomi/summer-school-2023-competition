@@ -37,7 +37,7 @@ def main() -> None:
         torch.cuda.current_device()
     torch.manual_seed(cfg.hardware.seed)
     device = torch.device("cuda" if use_cuda else "cpu")
-    amp_scaler = amp.GradScaler() if use_cuda and cfg.hardware.fp16 else None
+    amp_scaler = amp.GradScaler() if cfg.hardware.use_fp16() else None
     torch.set_grad_enabled(False)
 
     # With the device as context manager the tensor creations are done onto that device
