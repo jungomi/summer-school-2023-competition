@@ -22,7 +22,9 @@ def predict_transcription(
 ) -> str:
     # Automatically run it in mixed precision (FP16) if a scaler is given
     with amp.autocast(enabled=amp_scaler is not None):
-        outputs = model.generate(pixel_values=batch.images.to(device))
+        outputs = model.generate(
+            pixel_values=batch.images.to(device), interpolate_pos_encoding=True
+        )
         output_text = tokeniser.batch_decode(outputs, skip_special_tokens=True)
     return output_text
 

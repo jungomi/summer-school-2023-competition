@@ -387,13 +387,17 @@ def main_entry(
     model.encoder.pooler.requires_grad_(False)
     processor = TrOCRProcessor.from_pretrained(cfg.model.pretrained)
     tokeniser = processor.tokenizer
-    img_preprocessor = (
-        processor
-        if cfg.preprocess.trocr_preprocessing
-        else Preprocessor(
+    if cfg.preprocess.trocr_preprocessing:
+        img_preprocessor = processor
+    else:
+        img_preprocessor = Preprocessor(
             height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
         )
-    )
+        # This is a workaround because VisionEncoderDecoderModel.generate falsely
+        # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
+        # forward method to use other sizes than the one it was trained on (384x384).
+        # It only disables the argument validation, the rest works fine.
+        model._validate_model_kwargs = lavd.noop.no_op
     spinner.stop()
 
     # set special tokens used for creating the decoder_input_ids from the labels
