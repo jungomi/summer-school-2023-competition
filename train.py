@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics.functional.text import char_error_rate, word_error_rate
 from torchvision import transforms
-from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
+from transformers import AutoTokenizer, VisionEncoderDecoderModel
 
 from config.train import TrainConfig
 from dataset import Batch, Collate, CompetitionDataset  # noqa: F401
@@ -23,7 +23,7 @@ from debugger import breakpoint
 from ema import AveragedModel
 from lr_scheduler import BaseLrScheduler, create_lr_scheduler
 from predict import predict_transcription
-from preprocess import Preprocessor
+from preprocess import ImagePreprocessor, Preprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
 from stats.log import (
     log_config,
@@ -199,14 +199,13 @@ def train(
     train_data_loader: DataLoader,
     validation_data_loaders: List[DataLoader],
     device: torch.device,
-    processor: TrOCRProcessor,
+    processor: Preprocessor,
     lr_scheduler: BaseLrScheduler,
     amp_scaler: Optional[amp.GradScaler] = None,
     ema_model: Optional[AveragedModel] = None,
     num_epochs: int = 100,
     best_metric: str = METRICS[0].key,
 ):
-    tokeniser = processor
     train_stats: Dict = dict(lr=[], loss=[])
     validation_stats = {
         val_data_loader.dataset.name: dict(cer=[], wer=[])  # type: ignore
@@ -248,7 +247,7 @@ def train(
             logger.start(val_text)
             validation_result = run_validation(
                 unwrap_model(model if ema_model is None else ema_model),
-                tokeniser,
+                processor.trocr.tokenizer,
                 val_data_loader,
                 device=device,
                 epoch=epoch,
@@ -391,29 +390,29 @@ def main_entry(
     with device:
         model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained)
     model.encoder.pooler.requires_grad_(False)
-    processor = TrOCRProcessor.from_pretrained(cfg.model.pretrained)
-    tokeniser = processor.tokenizer
-    if cfg.preprocess.trocr_preprocessing:
-        img_preprocessor = processor
-    else:
-        img_preprocessor = Preprocessor(
+    processor = Preprocessor.from_pretrained(
+        cfg.model.pretrained,
+        image_processor=None
+        if cfg.preprocess.trocr_preprocessing
+        else ImagePreprocessor(
             height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
-        )
-        # This is a workaround because VisionEncoderDecoderModel.generate falsely
-        # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
-        # forward method to use other sizes than the one it was trained on (384x384).
-        # It only disables the argument validation, the rest works fine.
-        model._validate_model_kwargs = lavd.noop.no_op
+        ),
+    )
+    # This is a workaround because VisionEncoderDecoderModel.generate falsely
+    # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
+    # forward method to use other sizes than the one it was trained on (384x384).
+    # It only disables the argument validation, the rest works fine.
+    model._validate_model_kwargs = lavd.noop.no_op
     spinner.stop()
 
     # set special tokens used for creating the decoder_input_ids from the labels
-    model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
-    model.config.pad_token_id = processor.tokenizer.pad_token_id
+    model.config.decoder_start_token_id = processor.trocr.tokenizer.cls_token_id
+    model.config.pad_token_id = processor.trocr.tokenizer.pad_token_id
     # make sure vocab size is set correctly
     model.config.vocab_size = model.config.decoder.vocab_size
 
     # set beam search parameters
-    model.config.eos_token_id = processor.tokenizer.sep_token_id
+    model.config.eos_token_id = processor.trocr.tokenizer.sep_token_id
     model.config.max_new_tokens = 64
     model.config.early_stopping = True
     model.config.no_repeat_ngram_size = 3
@@ -424,13 +423,12 @@ def main_entry(
     spinner.start()
 
     collate = Collate(
-        pad_token_id=tokeniser.pad_token_id, text_min_length=cfg.text_min_length
+        pad_token_id=processor.trocr.tokenizer.pad_token_id,
+        text_min_length=cfg.text_min_length,
     )
     train_dataset = CompetitionDataset(
         cfg.gt_train,
-        tokeniser=tokeniser,
-        img_preprocessor=img_preprocessor,
-        no_greyscale=cfg.preprocess.no_greyscale,
+        preprocessor=processor,
         name="Train",
     )
     train_sampler: Optional[DistributedSampler] = (
@@ -458,9 +456,7 @@ def main_entry(
     for val_gt in cfg.gt_validation:
         validation_dataset = CompetitionDataset(
             val_gt.path,
-            tokeniser=tokeniser,
-            img_preprocessor=img_preprocessor,
-            no_greyscale=cfg.preprocess.no_greyscale,
+            preprocessor=processor,
             name=val_gt.name,
         )
         validation_sampler: Optional[DistributedSampler] = (

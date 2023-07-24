@@ -5,7 +5,6 @@ from typing import Optional
 from simple_parsing import field
 
 from .hardware import HardwareConfig
-from .preprocess import PreprocessConfig
 from .utils import ConfigEntry
 
 
@@ -23,5 +22,4 @@ class PredictConfig(ConfigEntry):
     # [Default: prediction.tsv in the directory of the input file]
     out: Optional[Path] = field(default=None, alias="-o")
 
-    preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)
     hardware: HardwareConfig = field(default_factory=HardwareConfig)

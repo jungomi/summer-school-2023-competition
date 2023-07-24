@@ -1,4 +1,8 @@
+import json
+import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Union
 
 import torch
 import torch.nn.functional as F
@@ -6,13 +10,84 @@ from torchvision import transforms
 
 
 @dataclass
-class Preprocessor:
+class ImagePreprocessor:
     height: int = 128
     greyscale_intensity: float = 2.0
-    normalise: transforms.Normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))
+    normalise: transforms.Normalize = transforms.Normalize(
+        mean=[
+            0.5,
+        ],
+        std=[
+            0.5,
+        ],
+    )
     no_greyscale: bool = False
 
-    def __call__(self, img: torch.Tensor):
+    @classmethod
+    def from_pretrained(
+        cls, path: Union[str, os.PathLike], **kwargs
+    ) -> "ImagePreprocessor":
+        """
+        Creates the image preprocessor from a saved checkpoint
+
+        Args:
+            path (str | os.PathLike): Path to the saved preprocessor config or the
+                directory containing the it, in which case it looks for
+                image_preprocessor.json in that directory.
+            **kwargs: Other arguments to pass to the constructor.
+        Returns;
+            model (ImagePreprocessor): ImagePreprocessor initialised with the
+                configuration.
+        """
+        config_path = Path(path)
+        if config_path.is_dir():
+            config_path = config_path / "image_preprocessor.json"
+        with open(config_path, "r", encoding="utf-8") as fd:
+            config = json.load(fd)
+        norm_config = config.pop("normalise")
+        config["normalise"] = transforms.Normalize(
+            mean=norm_config["mean"], std=norm_config["std"]
+        )
+        # Include the manually specified arguments, which allows to overwrite the saved
+        # config arguments.
+        config.update(kwargs)
+        return cls(**config)
+
+    def config(self) -> Dict:
+        return dict(
+            height=self.height,
+            greyscale_intensity=self.greyscale_intensity,
+            normalise=dict(mean=self.normalise.mean, std=self.normalise.std),
+            no_greyscale=self.no_greyscale,
+        )
+
+    def save_pretrained(self, path: Union[str, os.PathLike]):
+        """
+        Save the preprocessor config as a JSON file.
+
+        Args:
+            path (str | os.PathLike): Path to where the JSON file should be saved.
+                If a directory is given, it will save the config as image_processor.json
+                in that directory.
+        """
+        out_path = Path(path)
+        if out_path.is_dir():
+            out_path = out_path / "image_preprocessor.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fd:
+            json.dump(self.config(), fd, indent=2)
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(\n"
+            f"  height={self.height},\n"
+            f"  greyscale_intensity={self.greyscale_intensity},\n"
+            f"  normalise={repr(self.normalise)},\n"
+            f"  no_greyscale={self.no_greyscale},\n"
+            ")"
+        )
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
         if not self.no_greyscale:
             img = greyscale(img, intensity=self.greyscale_intensity)
         img = resize(img, new_height=self.height)

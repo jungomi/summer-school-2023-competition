@@ -1,11 +1,12 @@
 import csv
 from typing import Optional
 
+import lavd
 import torch
 import torch.cuda.amp as amp
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoTokenizer, TrOCRProcessor, VisionEncoderDecoderModel
+from transformers import AutoTokenizer, VisionEncoderDecoderModel
 
 from config.predict import PredictConfig
 from dataset import Batch, Collate, CompetitionDataset
@@ -48,24 +49,21 @@ def main() -> None:
     # the loading time roughly 4x faster.
     with device:
         model = VisionEncoderDecoderModel.from_pretrained(cfg.model).eval()
-    processor = TrOCRProcessor.from_pretrained(cfg.model)
-    tokeniser = processor.tokenizer
-    img_preprocessor = (
-        processor
-        if cfg.preprocess.trocr_preprocessing
-        else Preprocessor(
-            height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
-        )
-    )
+    processor = Preprocessor.from_pretrained(cfg.model)
+    # This is a workaround because VisionEncoderDecoderModel.generate falsely
+    # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
+    # forward method to use other sizes than the one it was trained on (384x384).
+    # It only disables the argument validation, the rest works fine.
+    model._validate_model_kwargs = lavd.noop.no_op
 
     # set special tokens used for creating the decoder_input_ids from the labels
-    model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
-    model.config.pad_token_id = processor.tokenizer.pad_token_id
+    model.config.decoder_start_token_id = processor.trocr.tokenizer.cls_token_id
+    model.config.pad_token_id = processor.trocr.tokenizer.pad_token_id
     # make sure vocab size is set correctly
     model.config.vocab_size = model.config.decoder.vocab_size
 
     # set beam search parameters
-    model.config.eos_token_id = processor.tokenizer.sep_token_id
+    model.config.eos_token_id = processor.trocr.tokenizer.sep_token_id
     model.config.max_new_tokens = 64
     model.config.early_stopping = True
     model.config.no_repeat_ngram_size = 3
@@ -74,11 +72,10 @@ def main() -> None:
 
     input_dir = cfg.file.parent
     out_path = input_dir / "prediction.tsv" if cfg.out is None else cfg.out
-    collate = Collate(pad_token_id=tokeniser.pad_token_id)
+    collate = Collate(pad_token_id=processor.trocr.tokenizer.pad_token_id)
     dataset = CompetitionDataset(
         cfg.file,
-        tokeniser=tokeniser,
-        img_preprocessor=img_preprocessor,
+        preprocessor=processor,
         name=f"Predicting {out_path}",
     )
     data_loader = DataLoader(
@@ -105,7 +102,7 @@ def main() -> None:
         curr_batch_size = batch.images.size(0)
         output_text = predict_transcription(
             model=model,
-            tokeniser=tokeniser,
+            tokeniser=processor.trocr.tokenizer,
             batch=batch,
             device=device,
             amp_scaler=amp_scaler,

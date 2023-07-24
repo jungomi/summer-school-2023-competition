@@ -2,13 +2,15 @@ from pathlib import Path
 
 import lavd
 import torch.nn as nn
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from transformers import VisionEncoderDecoderModel
+
+from preprocess import Preprocessor
 
 
 def save_model(
     logger: lavd.Logger,
     model: VisionEncoderDecoderModel,
-    processor: TrOCRProcessor,
+    processor: Preprocessor,
     name: str,
 ):
     if logger.disabled:

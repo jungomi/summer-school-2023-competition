@@ -6,12 +6,10 @@ from typing import List, Optional, Union
 
 import torch
 import torch.nn.functional as F
-import torchvision.transforms.functional as TF
 from PIL import Image
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer, TrOCRProcessor
 
-from preprocess import Preprocessor, greyscale
+from preprocess import Preprocessor
 
 
 @dataclass
@@ -23,7 +21,7 @@ class SampleInfo:
 @dataclass
 class Sample:
     image: torch.Tensor
-    target: torch.Tensor
+    target: List[int]
     text: str
     path: Path
 
@@ -97,18 +95,14 @@ class CompetitionDataset(Dataset):
     def __init__(
         self,
         gt: Union[str, os.PathLike],
-        tokeniser: AutoTokenizer,
-        img_preprocessor: Union[Preprocessor, TrOCRProcessor] = Preprocessor(),
-        no_greyscale: bool = False,
+        preprocessor: Preprocessor,
         root: Optional[Union[str, os.PathLike]] = None,
         name: Optional[str] = None,
     ):
         self.gt = Path(gt)
         self.root = self.gt.parent if root is None else Path(root)
         self.name = self.gt.stem if name is None else name
-        self.tokeniser = tokeniser
-        self.img_preprocessor = img_preprocessor
-        self.no_greyscale = no_greyscale
+        self.preprocessor = preprocessor
 
         with open(self.gt, "r", encoding="utf-8") as fd:
             reader = csv.reader(
@@ -124,8 +118,7 @@ class CompetitionDataset(Dataset):
             f"  gt={repr(self.gt)},\n"
             f"  root={repr(self.root)},\n"
             f"  name={repr(self.name)},\n"
-            f"  tokeniser={repr(self.tokeniser)},\n"
-            f"  img_preprocessor={repr(self.img_preprocessor)},\n"
+            f"  preprocessor={repr(self.preprocessor)},\n"
             f"  len={len(self)},\n"
             ")"
         )
@@ -135,29 +128,7 @@ class CompetitionDataset(Dataset):
 
     def __getitem__(self, index: int) -> Sample:
         sample = self.data[index]
-        # Greyscale image
         img = Image.open(sample.path).convert("RGB")
-        if self.img_preprocessor:
-            if isinstance(self.img_preprocessor, TrOCRProcessor):
-                if self.no_greyscale:
-                    img_t = self.img_preprocessor(img, return_tensors="pt").pixel_values
-                else:
-                    # The binarisation (greyscale) takes a Tensor whereas TrOCR
-                    # preprocessor wants an RGB Image (PIL), so need to convert it back
-                    # and forth.
-                    img_grey = TF.to_pil_image(
-                        greyscale(TF.to_tensor(img.convert("L")))
-                    ).convert("RGB")
-                    img_t = self.img_preprocessor(
-                        img_grey, return_tensors="pt"
-                    ).pixel_values
-                img_t = img_t.squeeze(0)
-            else:
-                img_t = TF.to_tensor(img.convert("L"))
-                img_t = self.img_preprocessor(img_t)
-                img_t = img_t.expand(3, -1, -1)
-        else:
-            img_t = TF.to_tensor(img)
-        target = self.tokeniser(sample.text).input_ids
+        img_t, target = self.preprocessor(image=img, text=sample.text)
 
         return Sample(image=img_t, target=target, text=sample.text, path=sample.path)
