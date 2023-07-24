@@ -37,6 +37,11 @@ class TrainConfig(ConfigEntry):
     # maximum text length (in tokens) to get a fixed size of inputs, which can be useful
     # for hardware optimisations.
     text_min_length: int = 0
+    # Minimum width of the image. Set this to something higher than the potential
+    # maximum image width to get a fixed size of inputs when using the height resize
+    # rather than the TrOCR fixed size preprocessing, which can be useful
+    # for hardware optimisations.
+    image_min_width: int = 0
 
     model: ModelConfig = field(default_factory=ModelConfig)
     preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)

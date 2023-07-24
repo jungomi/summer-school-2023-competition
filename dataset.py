@@ -42,22 +42,30 @@ class Collate:
     values.
     """
 
-    def __init__(self, pad_token_id: int, text_min_length: int = 0):
+    def __init__(
+        self, pad_token_id: int, text_min_length: int = 0, image_min_width: int = 0
+    ):
         """
         Args:
             pad_token_id (int): Id of the padding token defined by the tokeniser
             text_min_length (int): Minimum length of the text/target. This can be
                 helpful to get a fixed size for hardware optimisations. If the maximum
                 length of a text in the batch exceeds this length, the batch will
-                e padded to the longest.
+                be padded to the longest.
+                [Default: 0]
+            image_min_width (int): Minimum width of the image. This can be
+                helpful to get a fixed size for hardware optimisations. If the maximum
+                width of an image in the batch exceeds this length, the batch will
+                be padded to the longest.
                 [Default: 0]
         """
         self.pad_token_id = pad_token_id
         self.text_min_length = text_min_length
+        self.image_min_width = image_min_width
 
     def __call__(self, data: List[Sample]) -> Batch:
         images = [d.image for d in data]
-        max_width = max([img.size(2) for img in images])
+        max_width = max(max([img.size(2) for img in images]), self.image_min_width)
         padded_images = [
             F.pad(img, [0, max_width - img.size(2)], mode="constant", value=1.0)
             for img in images

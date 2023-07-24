@@ -425,6 +425,7 @@ def main_entry(
     collate = Collate(
         pad_token_id=processor.trocr.tokenizer.pad_token_id,
         text_min_length=cfg.text_min_length,
+        image_min_width=cfg.image_min_width,
     )
     train_dataset = CompetitionDataset(
         cfg.gt_train,
@@ -505,6 +506,14 @@ def main_entry(
                 "most likely cause recompilation for each batch. Make sure to "
                 "get a fixed size by setting --text-min-length to a value "
                 "greater than the potential maximum number of tokens in the targets."
+            )
+        if processor.image_processor and collate.image_min_width == 0:
+            logger.eprintln(
+                "⚠️ [WARN]: --compile is used with no minimum image width while using "
+                "the height resize preprocessing (not a fixed size), this will "
+                "most likely cause recompilation for each batch. Make sure to "
+                "get a fixed size by setting --image-min-width to a value "
+                "greater than the potential maximum image width."
             )
     ema_model = None if cfg.no_ema else AveragedModel(model, ema_alpha=cfg.ema_alpha)
 
