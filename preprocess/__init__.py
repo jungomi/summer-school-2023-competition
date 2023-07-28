@@ -83,6 +83,14 @@ class Preprocessor:
             img_t = img_t.squeeze(0)
         return img_t
 
+    def unnormalise_image(self, image: torch.Tensor) -> torch.Tensor:
+        if self.image_processor:
+            return self.image_processor.unnormalise(image)
+        else:
+            # Assuming the normalisation produced values in the range [-1, 1], this
+            # reverts it to [0, 1].
+            return TF.normalize(image, mean=[-1], std=[2])
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}(\n"

@@ -1,26 +1,20 @@
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 import torch
 import torch.nn.functional as F
-from torchvision import transforms
+import torchvision.transforms.functional as TF
 
 
 @dataclass
 class ImagePreprocessor:
     height: int = 128
     greyscale_intensity: float = 2.0
-    normalise: transforms.Normalize = transforms.Normalize(
-        mean=[
-            0.5,
-        ],
-        std=[
-            0.5,
-        ],
-    )
+    mean: List[float] = field(default_factory=lambda: [0.5])
+    std: List[float] = field(default_factory=lambda: [0.5])
     no_greyscale: bool = False
 
     @classmethod
@@ -44,10 +38,6 @@ class ImagePreprocessor:
             config_path = config_path / "image_preprocessor.json"
         with open(config_path, "r", encoding="utf-8") as fd:
             config = json.load(fd)
-        norm_config = config.pop("normalise")
-        config["normalise"] = transforms.Normalize(
-            mean=norm_config["mean"], std=norm_config["std"]
-        )
         # Include the manually specified arguments, which allows to overwrite the saved
         # config arguments.
         config.update(kwargs)
@@ -57,7 +47,8 @@ class ImagePreprocessor:
         return dict(
             height=self.height,
             greyscale_intensity=self.greyscale_intensity,
-            normalise=dict(mean=self.normalise.mean, std=self.normalise.std),
+            mean=self.mean,
+            std=self.std,
             no_greyscale=self.no_greyscale,
         )
 
@@ -77,12 +68,28 @@ class ImagePreprocessor:
         with open(out_path, "w", encoding="utf-8") as fd:
             json.dump(self.config(), fd, indent=2)
 
+    def normalise(self, img: torch.Tensor) -> torch.Tensor:
+        return TF.normalize(img, mean=self.mean, std=self.std)
+
+    def unnormalise(self, img: torch.Tensor) -> torch.Tensor:
+        # Undo the normalisation, instead of simply inverting the formula, the same one
+        # is used but with the mean and std calculate such that it gets the reverse
+        # result. The reason for doing it this way, is to simply use torchvision's
+        # normalise function.
+        mean_inv = []
+        std_inv = []
+        for mean, std in zip(self.mean, self.std):
+            mean_inv.append(-mean / std)
+            std_inv.append(1 / std)
+        return TF.normalize(img, mean=mean_inv, std=std_inv)
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}(\n"
             f"  height={self.height},\n"
             f"  greyscale_intensity={self.greyscale_intensity},\n"
-            f"  normalise={repr(self.normalise)},\n"
+            f"  mean={self.mean},\n"
+            f"  std={self.std},\n"
             f"  no_greyscale={self.no_greyscale},\n"
             ")"
         )

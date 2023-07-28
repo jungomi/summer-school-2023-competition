@@ -1,5 +1,6 @@
 import argparse
 import time
+from dataclasses import asdict
 from typing import Dict, List, Optional
 
 import lavd
@@ -7,6 +8,8 @@ import torch
 
 from config.utils import ConfigEntry
 from lr_scheduler import BaseLrScheduler
+from preprocess import Preprocessor
+from trainer.result import TrainResult, ValidationResult
 
 from .dict_utils import get_recursive
 from .metric import Metric
@@ -81,6 +84,7 @@ def log_experiment(
     validation: Dict,
     options: argparse.Namespace,
     lr_scheduler: BaseLrScheduler,
+    preprocessor: Preprocessor,
     config: ConfigEntry,
 ):
     infos = {
@@ -89,6 +93,7 @@ def log_experiment(
     }
     sections = {
         "LR Scheduler": ["```python"] + repr(lr_scheduler).splitlines() + ["```"],
+        "Preprocessor": ["```python"] + repr(preprocessor).splitlines() + ["```"],
         "Config": ["```yaml"]
         + config.dumps_yaml(sort_keys=False, indent=2).splitlines()
         + ["```"],
@@ -109,25 +114,25 @@ def log_config(
 def log_results(
     logger: lavd.Logger,
     epoch: int,
-    train_result: Dict,
-    validation_results: List[Dict],
+    train_result: TrainResult,
+    validation_results: List[ValidationResult],
     metrics: List[Metric],
 ):
-    logger.log_scalar(train_result["lr"], "learning_rate", step=epoch)
-    val = get_recursive(train_result, key="loss")
-    logger.log_scalar(val, "train/loss", step=epoch)
+    logger.log_scalar(train_result.lr, "learning_rate", step=epoch)
+    logger.log_scalar(train_result.loss, "train/loss", step=epoch)
 
     for result in validation_results:
-        name = result["name"]
+        name = result.name
+        result_dict = asdict(result)
         for metric in metrics:
             key = metric.key
-            val = get_recursive(result, key=key)
+            val = get_recursive(result_dict, key=key)
             logger.log_scalar(val, f"{name}/{key}", step=epoch)
-        sample = get_recursive(result, key="sample")
+        sample = result.sample
         if sample:
-            logger.log_image(sample["image"], f"{name}/sample", step=epoch)
+            logger.log_image(sample.image, f"{name}/sample", step=epoch)
             logger.log_text(
-                sample["pred"], f"{name}/sample", step=epoch, expected=sample["text"]
+                sample.pred, f"{name}/sample", step=epoch, expected=sample.text
             )
 
 
