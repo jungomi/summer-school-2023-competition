@@ -6,3 +6,6 @@ profile = "black"
 
 [tool.pytest.ini_options]
 testpaths = "test"
+filterwarnings = [
+  "ignore::DeprecationWarning"
+]
