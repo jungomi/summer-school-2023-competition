@@ -72,7 +72,7 @@ def main() -> None:
 
     input_dir = cfg.file.parent
     out_path = input_dir / "prediction.tsv" if cfg.out is None else cfg.out
-    collate = Collate(pad_token_id=processor.trocr.tokenizer.pad_token_id)
+    collate = Collate()
     dataset = CompetitionDataset(
         cfg.file,
         preprocessor=processor,

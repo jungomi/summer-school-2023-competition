@@ -43,11 +43,18 @@ class Collate:
     """
 
     def __init__(
-        self, pad_token_id: int, text_min_length: int = 0, image_min_width: int = 0
+        self,
+        image_pad_value: float = 1.0,
+        text_pad_value: int = -100,
+        text_min_length: int = 0,
+        image_min_width: int = 0,
     ):
         """
         Args:
-            pad_token_id (int): Id of the padding token defined by the tokeniser
+            image_pad_value (float): Value to pad the images with.
+                [Default: 1.0, which is white even after normalisation]
+            text_pad_value (int): Value to pad the text/target with.
+                [Default: -100 which is automatically ignored in the cross entropy loss]
             text_min_length (int): Minimum length of the text/target. This can be
                 helpful to get a fixed size for hardware optimisations. If the maximum
                 length of a text in the batch exceeds this length, the batch will
@@ -59,7 +66,8 @@ class Collate:
                 be padded to the longest.
                 [Default: 0]
         """
-        self.pad_token_id = pad_token_id
+        self.image_pad_value = image_pad_value
+        self.text_pad_value = text_pad_value
         self.text_min_length = text_min_length
         self.image_min_width = image_min_width
 
@@ -67,7 +75,12 @@ class Collate:
         images = [d.image for d in data]
         max_width = max(max([img.size(2) for img in images]), self.image_min_width)
         padded_images = [
-            F.pad(img, [0, max_width - img.size(2)], mode="constant", value=1.0)
+            F.pad(
+                img,
+                [0, max_width - img.size(2)],
+                mode="constant",
+                value=self.image_pad_value,
+            )
             for img in images
         ]
         # The padding mask has 1 (True) for pixels that are padding, and 0 (False) for
@@ -86,14 +99,14 @@ class Collate:
         max_len = max(int(torch.max(lengths).item()), self.text_min_length)
         # Padding with the pad token, which is ignored by the loss.
         padded_targets = torch.tensor(
-            [t + (max_len - len(t)) * [-100] for t in targets],
+            [t + (max_len - len(t)) * [self.text_pad_value] for t in targets],
             dtype=torch.long,
         )
         return Batch(
             images=torch.stack(padded_images, dim=0),
             targets=padded_targets,
             image_padding_masks=torch.stack(image_padding_masks, dim=0),
-            target_padding_mask=padded_targets == self.pad_token_id,
+            target_padding_mask=padded_targets == self.text_pad_value,
             texts=[d.text for d in data],
             paths=[d.path for d in data],
         )

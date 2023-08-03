@@ -245,7 +245,6 @@ def main_entry(
     spinner.start()
 
     collate = Collate(
-        pad_token_id=preprocessor.trocr.tokenizer.pad_token_id,
         text_min_length=cfg.text_min_length,
         image_min_width=cfg.image_min_width,
     )
