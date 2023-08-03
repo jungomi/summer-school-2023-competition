@@ -13,12 +13,13 @@ import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from transformers import VisionEncoderDecoderModel
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 from config.train import TrainConfig
 from dataset import Batch, Collate, CompetitionDataset  # noqa: F401
 from lr_scheduler import create_lr_scheduler
-from preprocess import ImagePreprocessor, Preprocessor
+from model import OcrTransformer, create_model, from_pretrained
+from preprocess import ImagePreprocessor, Preprocessor, TextPreprocessor
 from stats import METRICS, METRICS_DICT, average_checkpoint_metric
 from stats.log import (
     log_config,
@@ -27,15 +28,13 @@ from stats.log import (
     log_results,
     log_top_checkpoints,
 )
-from trainer import BaseTrainer, HuggingFaceTrainer
+from trainer import BaseTrainer, CtcTrainer, HuggingFaceTrainer
 
 
 def train(
     trainer: BaseTrainer,
-    logger: lavd.Logger,
     train_data_loader: DataLoader,
     validation_data_loaders: List[DataLoader],
-    preprocessor: Preprocessor,
     num_epochs: int = 100,
     best_metric: str = METRICS[0].key,
 ):
@@ -53,35 +52,30 @@ def train(
             epoch=actual_epoch,
             pad=len(str(num_epochs)),
         )
-        logger.set_prefix(epoch_text)
-        logger.start(epoch_text, prefix=False)
+        trainer.logger.set_prefix(epoch_text)
+        trainer.logger.start(epoch_text, prefix=False)
         start_time = time.time()
 
-        logger.start("Train")
         train_result = trainer.train_epoch(train_data_loader, epoch=epoch)
         train_stats["lr"].append(trainer.get_lr())
         train_stats["loss"].append(train_result.loss)
-        logger.end("Train")
 
         validation_results = []
         for val_data_loader in validation_data_loaders:
             val_name = val_data_loader.dataset.name  # type: ignore
-            val_text = "Validation: {}".format(val_name)
-            logger.start(val_text)
             validation_result = trainer.validation_epoch(
                 val_data_loader,
                 epoch=epoch,
-                name=val_text,
+                name=val_name,
             )
             validation_results.append(validation_result)
             validation_stats[val_name]["cer"].append(validation_result.cer)
             validation_stats[val_name]["wer"].append(validation_result.wer)
-            logger.end(val_text)
 
         validation_results_dict = [
             asdict(val_result) for val_result in validation_results
         ]
-        with logger.spinner("Checkpoint", placement="right"):
+        with trainer.logger.spinner("Checkpoint", placement="right"):
             best_metric_value = average_checkpoint_metric(
                 validation_results_dict,
                 key=best_metric,
@@ -99,24 +93,24 @@ def train(
                 trainer.save_pretrained("best")
             trainer.save_pretrained("latest")
 
-        with logger.spinner("Logging Data", placement="right"):
+        with trainer.logger.spinner("Logging Data", placement="right"):
             log_results(
-                logger,
+                trainer.logger,
                 actual_epoch,
                 train_result,
                 validation_results,
                 metrics=METRICS,
             )
 
-        with logger.spinner("Best Checkpoints", placement="right"):
-            log_top_checkpoints(logger, validation_stats, METRICS)
+        with trainer.logger.spinner("Best Checkpoints", placement="right"):
+            log_top_checkpoints(trainer.logger, validation_stats, METRICS)
 
         time_difference = time.time() - start_time
         epoch_results = [
             dict(name="Train", **asdict(train_result))
         ] + validation_results_dict
         log_epoch_stats(
-            logger,
+            trainer.logger,
             epoch_results,
             METRICS,
             lr_scheduler=trainer.lr_scheduler,
@@ -125,19 +119,19 @@ def train(
         # Report when new best checkpoint was saved
         # Here instead of when saving, to get it after the table of the epoch results.
         if best_checkpoint["epoch"] == actual_epoch:
-            logger.println(
+            trainer.logger.println(
                 (
                     "{icon:>{pad}} New best checkpoint: "
                     "Epoch {num:0>4} — {metric_name} = {metric_value:.5f} {icon}"
                 ),
                 icon="🔔",
-                pad=logger.indent_size,
+                pad=trainer.logger.indent_size,
                 num=best_checkpoint["epoch"],
                 metric_name=METRICS_DICT[best_metric].short_name
                 or METRICS_DICT[best_metric].name,
                 metric_value=best_checkpoint.get(best_metric, "N/A"),
             )
-        logger.end(epoch_text, prefix=False)
+        trainer.logger.end(epoch_text, prefix=False)
 
 
 def main() -> None:
@@ -170,7 +164,7 @@ def main() -> None:
 
 def main_entry(
     rank: int, distributed: bool = False, device_ids: Optional[List[int]] = None
-):
+) -> None:
     # Parser needs to be rebuilt, since it can't be serialised.
     parser = TrainConfig.create_parser()
     # Parsing the args again is necessary because otherwise the arguments are not added
@@ -203,43 +197,69 @@ def main_entry(
 
     spinner = logger.spinner(f"Loading Model ({device})", placement="right")
     spinner.start()
-    # With the device as context manager the tensor creations are done onto that device
-    # rather than the CPU, which skips the intermediate CPU model that would be caused
-    # by Model(...).to(device) before transferring it onto the device.
-    # Note: This might not cover all creations, but as long as the best practices are
-    # followed, it will work fine. In this particular case it works flawlessly and makes
-    # the loading time roughly 4x faster.
-    with device:
-        model = VisionEncoderDecoderModel.from_pretrained(cfg.model.pretrained)
-    model.encoder.pooler.requires_grad_(False)
-    preprocessor = Preprocessor.from_pretrained(
-        cfg.model.pretrained,
-        image_processor=None
-        if cfg.preprocess.trocr_preprocessing
-        else ImagePreprocessor(
-            height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
-        ),
-    )
-    # This is a workaround because VisionEncoderDecoderModel.generate falsely
-    # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
-    # forward method to use other sizes than the one it was trained on (384x384).
-    # It only disables the argument validation, the rest works fine.
-    model._validate_model_kwargs = lavd.noop.no_op
+    if cfg.model.pretrained:
+        preprocessor = Preprocessor.from_pretrained(cfg.model.pretrained)
+        # With the device as context manager the tensor creations are done onto that
+        # device rather than the CPU, which skips the intermediate CPU model that would
+        # be caused by Model(...).to(device) before transferring it onto the device.
+        # Note: This might not cover all creations, but as long as the best practices
+        # are followed, it will work fine. In this particular case it works flawlessly
+        # and makes the loading time roughly 4x faster.
+        with device:
+            model = from_pretrained(cfg.model.pretrained)
+    else:
+        preprocessor = Preprocessor(
+            trocr=TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
+            if cfg.preprocess.trocr_preprocessing or cfg.preprocess.tokens is None
+            else None,
+            image_processor=None
+            if cfg.preprocess.trocr_preprocessing
+            else ImagePreprocessor(
+                height=cfg.preprocess.height, no_greyscale=cfg.preprocess.no_greyscale
+            ),
+            text_processor=None
+            if cfg.preprocess.tokens is None
+            else TextPreprocessor(tokens=cfg.preprocess.tokens),
+        )
+        model_kwargs = {}
+        if cfg.model.kind == OcrTransformer.kind:
+            model_kwargs = dict(
+                num_chars=preprocessor.num_tokens(),
+                hidden_size=cfg.model.hidden_size,
+                num_layers=cfg.model.num_layers,
+                num_heads=cfg.model.num_heads,
+                classifier_channels=cfg.model.classifier_channels,
+                dropout_rate=cfg.model.dropout,
+            )
+        with device:
+            model = create_model(cfg.model.kind, **model_kwargs)
+    if isinstance(model, VisionEncoderDecoderModel):
+        model.encoder.pooler.requires_grad_(False)
+        # This is a workaround because VisionEncoderDecoderModel.generate falsely
+        # rejects the `interpolate_pos_encoding=True`, which needs to be passed to the
+        # forward method to use other sizes than the one it was trained on (384x384).
+        # It only disables the argument validation, the rest works fine.
+        model._validate_model_kwargs = lavd.noop.no_op
+
+        # set special tokens used for creating the decoder_input_ids from the labels
+        model.config.decoder_start_token_id = (
+            preprocessor.trocr.tokenizer.cls_token_id if preprocessor.trocr else 0
+        )
+        model.config.pad_token_id = preprocessor.pad_token_id()
+        # make sure vocab size is set correctly
+        model.config.vocab_size = model.config.decoder.vocab_size
+
+        # set beam search parameters
+        model.config.eos_token_id = (
+            preprocessor.trocr.tokenizer.sep_token_id if preprocessor.trocr else 0
+        )
+        model.config.max_new_tokens = 64
+        model.config.early_stopping = True
+        model.config.no_repeat_ngram_size = 3
+        model.config.length_penalty = 2.0
+        model.config.num_beams = 4
+
     spinner.stop()
-
-    # set special tokens used for creating the decoder_input_ids from the labels
-    model.config.decoder_start_token_id = preprocessor.trocr.tokenizer.cls_token_id
-    model.config.pad_token_id = preprocessor.trocr.tokenizer.pad_token_id
-    # make sure vocab size is set correctly
-    model.config.vocab_size = model.config.decoder.vocab_size
-
-    # set beam search parameters
-    model.config.eos_token_id = preprocessor.trocr.tokenizer.sep_token_id
-    model.config.max_new_tokens = 64
-    model.config.early_stopping = True
-    model.config.no_repeat_ngram_size = 3
-    model.config.length_penalty = 2.0
-    model.config.num_beams = 4
 
     spinner = logger.spinner("Loading data", placement="right")
     spinner.start()
@@ -319,7 +339,7 @@ def main_entry(
         )
     if cfg.model.compile:
         # The compilation of the model needs to be after the DDP because there are some
-        # additonal optimisations for the distributed model.
+        # additional optimisations for the distributed model.
         model = torch.compile(model, backend=cfg.model.compile)
         if collate.text_min_length == 0:
             logger.eprintln(
@@ -350,7 +370,8 @@ def main_entry(
         allow_extra_args=True,
     )
 
-    trainer = HuggingFaceTrainer(
+    TrainerClass = HuggingFaceTrainer if cfg.model.kind == "trocr" else CtcTrainer
+    trainer = TrainerClass(
         model=model,
         optimiser=optimiser,
         preprocessor=preprocessor,
@@ -382,10 +403,8 @@ def main_entry(
 
     train(
         trainer,
-        logger,
         train_data_loader,
         validation_data_loaders,
-        preprocessor=preprocessor,
         num_epochs=cfg.num_epochs,
     )
 

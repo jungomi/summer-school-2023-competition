@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import lavd
 import torch
@@ -56,7 +56,7 @@ class BaseTrainer:
     ):
         self.model = model
         self.optimiser = optimiser
-        self.device = device
+        self.device = torch.device(device)
         self.preprocessor = preprocessor
         self.logger = logger
         self.amp_scaler = amp_scaler
@@ -80,6 +80,7 @@ class BaseTrainer:
         self.model.train()
         num_replicas = set_sampler_epoch(data_loader, epoch=epoch)
 
+        self.logger.start("Train")
         losses = []
         pbar = self.logger.progress_bar(
             "Train",
@@ -101,20 +102,23 @@ class BaseTrainer:
         result = dict(loss=torch.mean(torch.tensor(losses)).item())
         # Gather the metrics onto the primary process
         result = sync_dict_values(result, device=self.device)
+        self.logger.end("Train")
         return TrainResult(**result, lr=self.get_lr())
 
     @torch.inference_mode()
     def validation_epoch(
-        self, data_loader: DataLoader, epoch: int, name: str = "Validation"
+        self, data_loader: DataLoader, epoch: int, name: Optional[str] = None
     ) -> ValidationResult:
         torch.set_grad_enabled(False)
         self.model.eval()
         num_replicas = set_sampler_epoch(data_loader, epoch=epoch)
 
+        val_text = f"Validation: {name}" if name else "Validation"
+        self.logger.start(val_text)
         cers = []
         wers = []
         pbar = self.logger.progress_bar(
-            name,
+            val_text,
             total=len(data_loader.dataset),  # type: ignore
             leave=False,
             dynamic_ncols=True,
@@ -138,14 +142,15 @@ class BaseTrainer:
         )
         # Gather the metrics onto the primary process
         result = sync_dict_values(result, device=self.device)
+        self.logger.end(val_text)
         return ValidationResult(
             **result,
-            name=name,
+            name=name or "Validation",
             sample=Sample(
                 image=self.preprocessor.unnormalise_image(batch.images[0].cpu()),
                 text=batch.texts[0],
                 pred=output_text[0],
-            )
+            ),
         )
 
     def forward(self, batch: Batch) -> torch.Tensor:
@@ -172,16 +177,21 @@ class BaseTrainer:
         if self.ema_model is not None:
             self.ema_model.update_parameters(self.model)
 
-    def predict(self, batch: Batch) -> str:
+    def predict(self, batch: Batch) -> List[str]:
         raise NotImplementedError("predict method is not implemented")
 
     def save_pretrained(self, name: str) -> Path:
         path = self.logger.get_file_path(name)
         if not self.logger.disabled:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True)
             model = self.unwrap_validation_model()
             # Unwrapping the module makes the type checking brittle, but this is
             # guaranteed to be any model that implements save_pretrained.
             model.save_pretrained(path, safe_serialization=True)  # type: ignore
             self.preprocessor.save_pretrained(path)
         return path
+
+    def to(self, device: torch.device):
+        self.device = device
+        self.model.to(device)
+        return self

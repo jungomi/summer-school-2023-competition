@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+from typing import List
+
 import torch
 
 from dataset import Batch
@@ -33,12 +37,22 @@ class HuggingFaceTrainer(BaseTrainer):
         )
         return outputs.loss
 
-    def predict(self, batch: Batch) -> str:
-        output_text = predict_transcription(
+    def predict(self, batch: Batch) -> List[str]:
+        output_texts = predict_transcription(
             model=self.unwrap_validation_model(),
-            tokeniser=self.preprocessor.trocr.tokenizer,
+            preprocessor=self.preprocessor,
             batch=batch,
             device=self.device,
             amp_scaler=self.amp_scaler,
         )
-        return output_text
+        return output_texts
+
+    def save_pretrained(self, name: str) -> Path:
+        path = super().save_pretrained(name)
+        if not self.logger.disabled:
+            # Also save the metadata to metadata.json because HuggingFace models don't
+            # store it in the model checkpoint. Specifically it is to identify the kind
+            # of model.
+            with open(path / "metadata.json", "w", encoding="utf-8") as fd:
+                json.dump(dict(kind="trocr"), fd, indent=2)
+        return path

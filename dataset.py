@@ -30,7 +30,7 @@ class Sample:
 class Batch:
     images: torch.Tensor
     targets: torch.Tensor
-    image_padding_masks: torch.Tensor
+    image_padding_mask: torch.Tensor
     target_padding_mask: torch.Tensor
     texts: List[str]
     paths: List[Path]
@@ -105,7 +105,7 @@ class Collate:
         return Batch(
             images=torch.stack(padded_images, dim=0),
             targets=padded_targets,
-            image_padding_masks=torch.stack(image_padding_masks, dim=0),
+            image_padding_mask=torch.stack(image_padding_masks, dim=0),
             target_padding_mask=padded_targets == self.text_pad_value,
             texts=[d.text for d in data],
             paths=[d.path for d in data],

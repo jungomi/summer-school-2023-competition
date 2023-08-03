@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
 from simple_parsing import field
 
@@ -15,3 +17,6 @@ class PreprocessConfig:
     trocr_preprocessing: bool = field(action="store_true")
     # Do not convert the images to greyscale (keep RGB)
     no_greyscale: bool = field(action="store_true")
+    # Path to the TSV file with the available tokens. Specifying this uses a simple
+    # character based preprocessor (CTC based) with the available tokens.
+    tokens: Optional[Path] = None
