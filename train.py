@@ -1,7 +1,8 @@
 import os
+import tempfile
 import time
 from dataclasses import asdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import lavd
 import psutil
@@ -16,7 +17,8 @@ from torch.utils.data.distributed import DistributedSampler
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 from config.train import TrainConfig
-from dataset import Batch, Collate, CompetitionDataset  # noqa: F401
+from dataset import Batch, Collate, OcrDataset  # noqa: F401
+from dist import on_main_first
 from lr_scheduler import create_lr_scheduler
 from model import OcrTransformer, create_model, from_pretrained
 from preprocess import ImagePreprocessor, Preprocessor, TextPreprocessor
@@ -154,16 +156,24 @@ def main() -> None:
         cfg.hardware.gpus.values if cfg.hardware.gpus and num_gpus > 0 else None
     )
 
+    mmap_dir = None
+    if not cfg.hardware.no_mmap:
+        tmp_dir = tempfile.TemporaryDirectory()
+        mmap_dir = tmp_dir.name
+
     if num_gpus > 1:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12345"
-        mp.spawn(main_entry, nprocs=num_gpus, args=(True, device_ids))
+        mp.spawn(main_entry, nprocs=num_gpus, args=(True, device_ids, mmap_dir))
     else:
-        main_entry(0, device_ids=device_ids)
+        main_entry(0, device_ids=device_ids, mmap_dir=mmap_dir)
 
 
 def main_entry(
-    rank: int, distributed: bool = False, device_ids: Optional[List[int]] = None
+    rank: int,
+    distributed: bool = False,
+    device_ids: Optional[List[int]] = None,
+    mmap_dir: Optional[Union[str, os.PathLike]] = None,
 ) -> None:
     # Parser needs to be rebuilt, since it can't be serialised.
     parser = TrainConfig.create_parser()
@@ -268,11 +278,15 @@ def main_entry(
         text_min_length=cfg.text_min_length,
         image_min_width=cfg.image_min_width,
     )
-    train_dataset = CompetitionDataset(
-        cfg.gt_train,
-        preprocessor=preprocessor,
-        name="Train",
-    )
+    # Loading the dataset is done on the main process first when using mmap so that
+    # only one process needs to preprocess all the data.
+    with on_main_first(enabled=mmap_dir is not None):
+        train_dataset = OcrDataset(
+            cfg.gt_train,
+            preprocessor=preprocessor,
+            mmap_dir=mmap_dir,
+            name="Train",
+        )
     train_sampler: Optional[DistributedSampler] = (
         DistributedSampler(
             train_dataset, num_replicas=cfg.hardware.num_gpus, rank=rank, shuffle=True
@@ -296,11 +310,15 @@ def main_entry(
 
     validation_data_loaders = []
     for val_gt in cfg.gt_validation:
-        validation_dataset = CompetitionDataset(
-            val_gt.path,
-            preprocessor=preprocessor,
-            name=val_gt.name,
-        )
+        # Loading the dataset is done on the main process first when using mmap so that
+        # only one process needs to preprocess all the data.
+        with on_main_first(enabled=mmap_dir is not None):
+            validation_dataset = OcrDataset(
+                val_gt.path,
+                preprocessor=preprocessor,
+                mmap_dir=mmap_dir,
+                name=val_gt.name,
+            )
         validation_sampler: Optional[DistributedSampler] = (
             DistributedSampler(
                 validation_dataset,

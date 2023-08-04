@@ -10,7 +10,7 @@ from tqdm import tqdm
 from transformers import VisionEncoderDecoderModel
 
 from config.predict import PredictConfig
-from dataset import Batch, Collate, CompetitionDataset
+from dataset import Batch, Collate, OcrDataset
 from model import from_pretrained
 from preprocess import Preprocessor
 
@@ -107,7 +107,7 @@ def main() -> None:
     input_dir = cfg.file.parent
     out_path = input_dir / "prediction.tsv" if cfg.out is None else cfg.out
     collate = Collate()
-    dataset = CompetitionDataset(
+    dataset = OcrDataset(
         cfg.file,
         preprocessor=preprocessor,
         name=f"Predicting {out_path}",

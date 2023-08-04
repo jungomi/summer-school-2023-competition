@@ -11,6 +11,8 @@ from torch.utils.data import Dataset
 
 from preprocess import Preprocessor
 
+from .mmap import MmapReader, MmapWriter
+
 
 @dataclass
 class SampleInfo:
@@ -112,26 +114,66 @@ class Collate:
         )
 
 
-class CompetitionDataset(Dataset):
+class OcrDataset(Dataset):
     def __init__(
         self,
         gt: Union[str, os.PathLike],
         preprocessor: Preprocessor,
         root: Optional[Union[str, os.PathLike]] = None,
+        mmap_dir: Optional[Union[str, os.PathLike]] = None,
         name: Optional[str] = None,
     ):
+        """
+        Args:
+            gt (str | os.PathLike): Path to ground truth TSV file.
+            preprocessor (Preprocessor): Preprocessor with a text and image processor.
+            root (str | os.PathLike, optional): Path to the root of the images.
+                [Default: Directory of the ground truth TSV file, i.e. all paths are
+                relative to the ground truth file]
+            mmap_dir (str | os.PathLike, optional): Base directory for the memory
+                mapping. A subdirectory will be created with the name of the dataset in
+                order to be able to have multiple datasets with memory mappings without
+                having to manually specify a different directory for each.
+                If not specified, no memory mapping is used.
+            name (str, optional): Name of the dataset
+                [Default: Name of the ground truth file and its parent directory]
+        """
         self.gt = Path(gt)
         self.root = self.gt.parent if root is None else Path(root)
-        self.name = self.gt.stem if name is None else name
+        self.name = f"{self.gt.parent.name}/{self.gt.stem}" if name is None else name
         self.preprocessor = preprocessor
 
         with open(self.gt, "r", encoding="utf-8") as fd:
             reader = csv.reader(
                 fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
             )
-            self.data = [
+            self.data_info = [
                 SampleInfo(path=self.root / line[0], text=line[1]) for line in reader
             ]
+
+        self.mmap_reader = None
+        if mmap_dir is not None:
+            # Create a subdirectory with the name of the dataset to not conflict with
+            # others.
+            mmap_dir = Path(mmap_dir) / self.name
+            if not MmapReader.has_mmap(mmap_dir):
+                # mmap doesn't exist yet, so load the data and create the mmap files
+                # Notably, this preprocesses the text, which means that it is only done
+                # a single time instead of every time it is loaded, making it much
+                # faster to load.
+                # TODO: Check whether preprocessing the image gives any speed up, which
+                # could be the case since the resizing can reduce it dramatically, but
+                # that should probably stored separately rather than just serialising
+                # it.
+                mmap_writer = MmapWriter(mmap_dir)
+                for sample in self.data_info:
+                    encoded_text = self.preprocessor.process_text(sample.text)
+                    mmap_writer.write(encoded_text)
+                del mmap_writer
+
+            # Initialise the mmap reader so it can be accessed to retrieve the data
+            # through it.
+            self.mmap_reader = MmapReader.open(mmap_dir)
 
     def __repr__(self) -> str:
         return (
@@ -145,11 +187,14 @@ class CompetitionDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        return len(self.data)
+        return len(self.mmap_reader) if self.mmap_reader else len(self.data_info)
 
     def __getitem__(self, index: int) -> Sample:
-        sample = self.data[index]
+        sample = self.data_info[index]
         img = Image.open(sample.path).convert("RGB")
-        img_t, target = self.preprocessor(image=img, text=sample.text)
-
+        img_t = self.preprocessor.process_image(img)
+        if self.mmap_reader:
+            target = self.mmap_reader[index]
+        else:
+            target = self.preprocessor.process_text(sample.text)
         return Sample(image=img_t, target=target, text=sample.text, path=sample.path)

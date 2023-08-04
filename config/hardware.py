@@ -48,6 +48,8 @@ class HardwareConfig:
     # Do not persist workers after the epoch ends but reinitialise them at the start of
     # every epoch. (Slower but uses much less RAM)
     no_persistent_workers: bool = field(action="store_true")
+    # Do not memory map the data but keep it in memory/process it on demand.
+    no_mmap: bool = field(action="store_true")
 
     def use_cuda(self) -> bool:
         return torch.cuda.is_available() and not self.no_cuda

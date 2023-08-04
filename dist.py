@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Dict, List
 
 import torch
@@ -110,3 +111,48 @@ def sync_dict_values(d: Dict, device: torch.device, reduction: str = "mean") -> 
     for k, v in zip(keys, values):
         dict_utils.set_recursive(out, k, v)
     return out
+
+
+@contextmanager
+def on_main_first(enabled: bool = True, join: bool = True):
+    """
+    A context manager for tasks that should be executed on the main process first and
+    the others only execute it once the main process is done. This is especially useuful
+    when the main process does all the loading/processing and writes the result to disk,
+    such that all other processes can just read the processed data instead of having to
+    process it themselves and doing wasteful work.
+
+    Example:
+
+    with on_main_first():
+        processed_path = Path("processed.png")
+        if processed_path.exists():
+            img = Image.open(processed_path)
+        else:
+            img = expensive_processing("original.png")
+            img.save(processed_path)
+
+    In this example only the main process will do the `expensive_processing`, because
+    the other processes wait to execute whatever is in the with statement until the main
+    process is out of it.
+
+    Args:
+        enabled (bool): Whether the context manager is enabled. [Default: True]
+        join (bool): Whether to join the processes, i.e. synchronise them so that all
+            processes are "finished" with the work at the same time. This can be helpful
+            if the other processes still need some work and they should be synchronised
+            in time. If that is not a concern, it can be turned off.
+            [Default: True]
+    """
+    # Every process except the main process waits here until the main process has
+    # finished the task.
+    if enabled and is_dist() and not is_main():
+        dist.barrier()
+    yield
+    # The main process has finished and the others will be released from the barrier,
+    # since all processes now triggered it.
+    if enabled and is_dist() and is_main():
+        dist.barrier()
+    # Join them to ensure they finish at the same time.
+    if enabled and join and is_dist():
+        dist.barrier()
