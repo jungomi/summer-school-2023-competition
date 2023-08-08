@@ -419,6 +419,9 @@ def main_entry(
     log_config(logger, cfg)
     logger.log_command(parser, options)
 
+    # Disable parallesim for the tokenizers to avoid the warnings as it will be turned
+    # of regardless.
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     train(
         trainer,
         train_data_loader,
