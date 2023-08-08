@@ -79,6 +79,12 @@ class BaseTrainer:
         torch.set_grad_enabled(True)
         self.model.train()
         num_replicas = set_sampler_epoch(data_loader, epoch=epoch)
+        # Zeroing out the gradients here, because during the backward pass the zeroing
+        # happens at the end, which saves the memory from it since the
+        # zero_grad(set_to_none=True) (default) will eliminate the need to have the
+        # gradients in memory, hence resetting them afterwards is beneficial.
+        # But for the first step it needs to be done manually.
+        self.optimiser.zero_grad()
 
         self.logger.start("Train")
         losses = []
@@ -161,7 +167,6 @@ class BaseTrainer:
             breakpoint("Loss is NaN")
         if self.lr_scheduler is not None:
             self.lr_scheduler.adjust_lr()
-        self.optimiser.zero_grad()
         if self.amp_scaler is None:
             loss.backward()
             # Clip gradients to avoid exploding gradients
@@ -176,6 +181,9 @@ class BaseTrainer:
             self.amp_scaler.update()
         if self.ema_model is not None:
             self.ema_model.update_parameters(self.model)
+        # Zero out the gradients at the end (set_to_none=True by default) to save memory
+        # of the gradients since they are now set to None.
+        self.optimiser.zero_grad()
 
     def predict(self, batch: Batch) -> List[str]:
         raise NotImplementedError("predict method is not implemented")
