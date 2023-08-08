@@ -145,7 +145,7 @@ class OcrDataset(Dataset):
 
         with open(self.gt, "r", encoding="utf-8") as fd:
             reader = csv.reader(
-                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
+                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None
             )
             self.data_info = [
                 SampleInfo(path=self.root / line[0], text=line[1]) for line in reader

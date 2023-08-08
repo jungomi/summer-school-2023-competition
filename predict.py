@@ -123,7 +123,7 @@ def main() -> None:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_fd = open(out_path, "w", encoding="utf-8")
-    writer = csv.writer(out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar="")
+    writer = csv.writer(out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None)
 
     pbar = tqdm(
         desc=dataset.name,

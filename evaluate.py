@@ -128,7 +128,7 @@ def main():
         sources["gt"].append(gt_name)
         with open(gt_path, "r", encoding="utf-8") as fd:
             reader = csv.reader(
-                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
+                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None
             )
             for line in reader:
                 results[line[0]] = dict(text=line[1], source=gt_name, preds={})
@@ -149,7 +149,7 @@ def main():
                 out_dir_pred / "individual_metrics.tsv", "w", encoding="utf-8"
             )
             out_tsv = csv.writer(
-                out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
+                out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None
             )
             # Header of the individual metrics TSV
             out_tsv.writerow(["path", "pred", "gt", "cer", "wer", "correct"])
@@ -159,7 +159,7 @@ def main():
         invalid[pred_name] = []
         with open(pred_path, "r", encoding="utf-8") as fd:
             reader = csv.reader(
-                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
+                fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None
             )
             for line in reader:
                 key = line[0]
@@ -232,7 +232,7 @@ def main():
         options.out_dir.mkdir(parents=True, exist_ok=True)
         with open(options.out_dir / "metrics.tsv", "w", encoding="utf-8") as out_fd:
             writer = csv.writer(
-                out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=""
+                out_fd, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None
             )
             writer.writerow(header)
             writer.writerows(rows)
