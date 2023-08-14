@@ -193,9 +193,10 @@ def main_entry(
             world_size=cfg.hardware.actual_num_gpus(),
             init_method="env://",
         )
+    device_id = rank if device_ids is None else device_ids[rank]
     # The default cuda device is set according to the available GPUs, if they were
     # not limited, it is equivalent to the rank.
-    torch.cuda.set_device(rank if device_ids is None else device_ids[rank])
+    torch.cuda.set_device(device_id)
     torch.manual_seed(cfg.hardware.seed)
     use_cuda = cfg.hardware.use_cuda()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -289,7 +290,7 @@ def main_entry(
         )
     train_sampler: Optional[DistributedSampler] = (
         DistributedSampler(
-            train_dataset, num_replicas=cfg.hardware.num_gpus, rank=rank, shuffle=True
+            train_dataset, num_replicas=cfg.hardware.num_gpus, shuffle=True
         )
         if distributed
         else None
@@ -323,7 +324,6 @@ def main_entry(
             DistributedSampler(
                 validation_dataset,
                 num_replicas=cfg.hardware.num_gpus,
-                rank=rank,
                 shuffle=False,
             )
             if distributed
@@ -353,7 +353,7 @@ def main_entry(
 
     if distributed:
         model = DistributedDataParallel(  # type: ignore
-            model, device_ids=[rank], find_unused_parameters=False
+            model, device_ids=[device_id], find_unused_parameters=False
         )
     if cfg.model.compile:
         # The compilation of the model needs to be after the DDP because there are some
