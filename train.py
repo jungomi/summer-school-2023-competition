@@ -190,7 +190,7 @@ def main_entry(
         dist.init_process_group(
             backend="nccl",
             rank=rank,
-            world_size=cfg.hardware.num_gpus,
+            world_size=cfg.hardware.actual_num_gpus(),
             init_method="env://",
         )
     # The default cuda device is set according to the available GPUs, if they were
