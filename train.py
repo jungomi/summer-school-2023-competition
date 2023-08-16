@@ -281,7 +281,7 @@ def main_entry(
     )
     # Loading the dataset is done on the main process first when using mmap so that
     # only one process needs to preprocess all the data.
-    with on_main_first(enabled=mmap_dir is not None):
+    with on_main_first(enabled=mmap_dir is not None, device_ids=[device_id]):
         train_dataset = OcrDataset(
             cfg.gt_train,
             preprocessor=preprocessor,
@@ -313,7 +313,7 @@ def main_entry(
     for val_gt in cfg.gt_validation:
         # Loading the dataset is done on the main process first when using mmap so that
         # only one process needs to preprocess all the data.
-        with on_main_first(enabled=mmap_dir is not None):
+        with on_main_first(enabled=mmap_dir is not None, device_ids=[device_id]):
             validation_dataset = OcrDataset(
                 val_gt.path,
                 preprocessor=preprocessor,

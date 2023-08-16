@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 import torch.distributed as dist
@@ -114,7 +114,9 @@ def sync_dict_values(d: Dict, device: torch.device, reduction: str = "mean") -> 
 
 
 @contextmanager
-def on_main_first(enabled: bool = True, join: bool = True):
+def on_main_first(
+    enabled: bool = True, join: bool = True, device_ids: Optional[List[int]] = None
+):
     """
     A context manager for tasks that should be executed on the main process first and
     the others only execute it once the main process is done. This is especially useuful
@@ -143,16 +145,22 @@ def on_main_first(enabled: bool = True, join: bool = True):
             if the other processes still need some work and they should be synchronised
             in time. If that is not a concern, it can be turned off.
             [Default: True]
+        device_ids (List[int], optional): The list of devices this process is using. In
+            the case of DDP it would be `device_ids=[rank]` just like in the DDP
+            constructor. It is neeeded here because otherwise the barrier will copy the
+            CUDA data to the GPU that matches the rank, so if rank != device_id, then it
+            will just occupy extra memory for no reason. Rather strange, but that's just
+            how it is, so better avoid this.
     """
     # Every process except the main process waits here until the main process has
     # finished the task.
     if enabled and is_dist() and not is_main():
-        dist.barrier()
+        dist.barrier(device_ids=device_ids)
     yield
     # The main process has finished and the others will be released from the barrier,
     # since all processes now triggered it.
     if enabled and is_dist() and is_main():
-        dist.barrier()
+        dist.barrier(device_ids=device_ids)
     # Join them to ensure they finish at the same time.
     if enabled and join and is_dist():
-        dist.barrier()
+        dist.barrier(device_ids=device_ids)
