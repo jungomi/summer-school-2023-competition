@@ -102,7 +102,7 @@ class TextPreprocessor:
         # Also convert it to a list for the correct lookup
         unique_ids = torch.unique_consecutive(ids).tolist()
         # The ctc token (0) is ignored in the decoding
-        return "".join([self.id_to_token[i] for i in unique_ids if i != 0])
+        return "".join([self.id_to_token[i] for i in unique_ids if i != self.ctc_id])
 
 
 def load_vocab(tokens_file: Union[os.PathLike, str]) -> List[str]:

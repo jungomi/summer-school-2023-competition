@@ -39,7 +39,6 @@ def predict_transcription_ctc(
     batch: Batch,
     device: torch.device,
     amp_scaler: Optional[amp.GradScaler] = None,
-    ctc_id: int = 0,
 ) -> List[str]:
     # Automatically run it in mixed precision (FP16) if a scaler is given
     with amp.autocast(enabled=amp_scaler is not None):
@@ -51,10 +50,6 @@ def predict_transcription_ctc(
     for out_ids, out_pad_mask in zip(max_ids, out_padding_mask):
         # Remove padding
         out_ids = out_ids[~out_pad_mask]
-        # Get rid of repeating symbols
-        out_ids = torch.unique_consecutive(out_ids)
-        # Remove CTC tokens
-        out_ids = out_ids[out_ids != ctc_id]
         output_texts.append(preprocessor.decode_text(out_ids))
     return output_texts
 
