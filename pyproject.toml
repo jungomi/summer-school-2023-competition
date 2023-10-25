@@ -1,8 +1,9 @@
 [tool.mypy]
 ignore_missing_imports = true
 
-[tool.isort]
-profile = "black"
+[tool.ruff.lint]
+# Additionally include import sorting lints (and automatic formatting with --fix)
+extend-select = ["I"]
 
 [tool.pytest.ini_options]
 testpaths = "test"

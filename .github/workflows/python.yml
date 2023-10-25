@@ -11,7 +11,7 @@ jobs:
         python-version: ["3.9", "3.10", "3.11"]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
@@ -26,8 +26,6 @@ jobs:
     - name: Type Check
       run: mypy .
     - name: Formatting
-      run: black --check --diff .
-    - name: Imports Formatting
-      run: isort --check --diff .
+      run: ruff format --diff .
     - name: Tests
       run: pytest -v

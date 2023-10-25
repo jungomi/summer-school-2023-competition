@@ -26,7 +26,7 @@ class BaseModel(nn.Module):
         path: Union[str, os.PathLike],
         allow_unused_weights: bool = False,
         reset_prefix: Optional[Union[str, List[str]]] = None,
-        **kwargs
+        **kwargs,
     ) -> "BaseModel":
         """
         Creates the model from a pre-trained model checkpoint.
